@@ -1,5 +1,6 @@
 import type { WalletEntry, WalletHoldings, WalletSnapshot, StakeAccount, StakingReward, SeekerStakeAccount } from '../types/wallet';
 import type { ParsedTransaction } from '../types/transaction';
+import type { TransactionGroup, GroupMember, GroupMemberInput, GroupMemberships } from '../types/groups';
 import { interpretTransaction } from './taxCategorizer';
 
 function withInterpretedFlow(tx: ParsedTransaction): ParsedTransaction {
@@ -45,6 +46,33 @@ async function apiDelete(url: string): Promise<void> {
     await fetch(url, { method: 'DELETE' });
   } catch (e) {
     console.error('API delete failed', url, e);
+  }
+}
+
+async function apiPost<T>(url: string, body: unknown): Promise<T | null> {
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return null;
+    return res.json() as Promise<T>;
+  } catch (e) {
+    console.error('API post failed', url, e);
+    return null;
+  }
+}
+
+async function apiPatch(url: string, body: unknown): Promise<void> {
+  try {
+    await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    console.error('API patch failed', url, e);
   }
 }
 
@@ -159,4 +187,41 @@ export async function saveSeekerStakeAccounts(address: string, data: SeekerStake
     unstakingAmount: a.unstakingAmount.toString(),
   }));
   await apiPut(`/api/v1/wallets/${address}/seeker-stake`, { data: serialisable, fetchedAt: Date.now() });
+}
+
+// Transaction Groups
+export async function loadGroups(address: string): Promise<TransactionGroup[]> {
+  return (await apiFetch<TransactionGroup[]>(`/api/v1/wallets/${address}/groups`)) ?? [];
+}
+
+export async function createGroup(address: string, name: string): Promise<{ id: number; name: string; createdAt: number } | null> {
+  return apiPost(`/api/v1/wallets/${address}/groups`, { name });
+}
+
+export async function renameGroup(address: string, id: number, name: string): Promise<void> {
+  await apiPatch(`/api/v1/wallets/${address}/groups/${id}`, { name });
+}
+
+export async function deleteGroup(address: string, id: number): Promise<void> {
+  await apiDelete(`/api/v1/wallets/${address}/groups/${id}`);
+}
+
+export async function loadGroupMembers(address: string, groupId: number): Promise<GroupMember[]> {
+  return (await apiFetch<GroupMember[]>(`/api/v1/wallets/${address}/groups/${groupId}/members`)) ?? [];
+}
+
+export async function addGroupMembers(address: string, groupId: number, members: GroupMemberInput[]): Promise<void> {
+  await apiPost(`/api/v1/wallets/${address}/groups/${groupId}/members`, { members });
+}
+
+export async function updateGroupMemberPrices(address: string, groupId: number, updates: GroupMemberInput[]): Promise<void> {
+  await apiPatch(`/api/v1/wallets/${address}/groups/${groupId}/members`, { updates });
+}
+
+export async function removeGroupMember(address: string, groupId: number, signature: string): Promise<void> {
+  await apiDelete(`/api/v1/wallets/${address}/groups/${groupId}/members/${signature}`);
+}
+
+export async function loadGroupMemberships(address: string): Promise<GroupMemberships | null> {
+  return apiFetch<GroupMemberships>(`/api/v1/wallets/${address}/group-memberships`);
 }

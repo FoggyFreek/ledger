@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Plus, Wallet, Trash2, Settings } from 'lucide-react';
+import { Plus, Wallet, Trash2, Settings, LayoutDashboard, ArrowLeftRight, Camera, FolderOpen } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { AddWalletModal } from '../wallets/AddWalletModal';
 import { SettingsModal } from '../settings/SettingsModal';
 import { fetchCurrentEpoch } from '../../lib/helius';
 import { loadHoldings, loadStakeAccounts, loadSeekerStakeAccounts } from '../../lib/storage';
 import { SKR_RAW_TO_UI } from '../../lib/helius';
-import type { WalletHoldings } from '../../types/wallet';
+
 
 interface Props {
   activePage: string;
@@ -51,9 +51,10 @@ export function Sidebar({ activePage, onPageChange }: Props) {
   }, [wallets]);
 
   const navItems = [
-    { id: 'overview', label: 'Holdings' },
-    { id: 'transactions', label: 'Transactions' },
-    { id: 'snapshots', label: 'Snapshots' },
+    { id: 'overview', label: 'Holdings', icon: LayoutDashboard },
+    { id: 'transactions', label: 'Transactions', icon: ArrowLeftRight },
+    { id: 'snapshots', label: 'Snapshots', icon: Camera },
+    { id: 'groups', label: 'Groups', icon: FolderOpen },
   ];
 
   return (
@@ -100,6 +101,8 @@ export function Sidebar({ activePage, onPageChange }: Props) {
               }`}
               onClick={() => setActiveAddress(w.address)}
             >
+              <div className="flex items-center gap-1.5 min-w-0">
+              <Wallet size={13} className="shrink-0 text-white/70" />
               <div className="min-w-0">
                 <div className="flex items-baseline gap-1">
                   <p className="text-xs font-medium truncate">{w.label}</p>
@@ -112,6 +115,7 @@ export function Sidebar({ activePage, onPageChange }: Props) {
                 <p className="text-xs text-gray-600 font-mono">
                   {w.address.slice(0, 6)}…{w.address.slice(-4)}
                 </p>
+              </div>
               </div>
               <button
                 onClick={e => { e.stopPropagation(); removeWallet(w.address); }}
@@ -138,12 +142,13 @@ export function Sidebar({ activePage, onPageChange }: Props) {
             <button
               key={item.id}
               onClick={() => onPageChange(item.id)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+              className={`w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
                 activePage === item.id
                   ? 'bg-purple-900/50 text-purple-200'
                   : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
               }`}
             >
+              <item.icon size={15} />
               {item.label}
             </button>
           ))}

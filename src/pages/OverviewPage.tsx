@@ -207,7 +207,7 @@ export function OverviewPage() {
                 <tr className="border-b border-gray-800/50 hover:bg-gray-800/30">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-green-400 flex items-center justify-center text-xs font-bold text-white">◎</div>
+                      <img src="https://solscan.io/_next/static/media/solPriceLogo.76eeb122.png" alt="SOL" className="w-7 h-7 rounded-full" onError={e => (e.currentTarget.style.display = 'none')} />
                       <div>
                         <p className="font-medium text-white">SOL</p>
                         <p className="text-xs text-gray-500">Solana</p>

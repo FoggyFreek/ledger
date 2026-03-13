@@ -107,23 +107,34 @@ For `TRANSFER_IN` / `TRANSFER_OUT` transactions:
 - `heliusType: 'INFLATION_REWARD'`
 - `balanceChanges`: single SOL entry for the reward amount
 
-## Display Helpers
+## Display Helpers (`src/lib/txSummary.ts`)
 
-### getSwapSummary(rawChanges, resolveSymbol)
-For TRADE transactions, returns `"Swapped X FROM for Y TO"`.
-- SOL economic amount = net of native SOL entries only (not WSOL)
-- WSOL excluded to avoid double-counting DEX wrapping mechanics
-- Zero-net mints (routing intermediaries) excluded
+The primary display layer used by TransactionsPage and GroupsPage.
 
-### getSwapBreakdown(rawChanges, fee, resolveSymbol)
-Returns two-item breakdown:
-1. `"X TOKEN for swap plus platform fees"` — shows the user's cost/received token
-2. `"X SOL as transaction fees"` — the on-chain transaction fee
+### resolveSymbol(mint, tokenMetas)
+Returns human-readable symbol: SOL for any SOL-like mint, otherwise looks up `tokenMetas` map, falls back to `mint.slice(0,6)…`.
 
-### interpretTransaction(balanceChanges)
-Returns `InterpretedFlow` with:
-- `netChanges` — merged, de-dusted economic impact
-- `rentItems` — detected rent deposits/refunds
+### formatAmount(bc, tokenMetas)
+Formats a single `BalanceChange` as `"+1,234.56 SOL"` or `"-0.5 USDC"`.
+
+### summarizeChanges(changes, tokenMetas)
+Joins multiple `BalanceChange[]` via `formatAmount`, comma-separated. Returns `"—"` for empty.
+
+### summarizeSwap(changes, tokenMetas)
+For TRADE transactions: `"1,234 SOL → 500 USDC"`. Falls back to `summarizeChanges` if no clear in/out split.
+
+### summarizeTx(tx, tokenMetas, walletAddress, walletOnly)
+Main entry point for transaction display. Uses `tx.interpretedFlow.netChanges`, calls `summarizeSwap` for TRADEs, `summarizeChanges` otherwise. Appends counterparty label (`From: xxxx…yyyy` / `To: xxxx…yyyy`) for transfers.
+
+## Group Aggregation (`src/lib/groupSummary.ts`)
+
+### aggregateBalances(members)
+Takes `GroupMember[]`, runs `interpretTransaction` on each member's `balanceChanges`, accumulates per-mint inflow/outflow totals. Returns `TokenTotals[]` sorted by magnitude.
+
+## USD Valuation (`src/lib/groups.ts`)
+
+### computeUsdValues(transactions)
+Fetches historical prices for all mints at each transaction's `blockTime`, computes USD inflow/outflow per transaction. Returns `GroupMemberInput[]` with `usdInflow`, `usdOutflow`, `priceFetched`.
 
 ## Common Pitfalls
 

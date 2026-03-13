@@ -131,6 +131,32 @@ export async function initDb() {
       fetched_at     BIGINT NOT NULL
     )
   `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS transaction_groups (
+      id             SERIAL  PRIMARY KEY,
+      wallet_address TEXT    NOT NULL REFERENCES wallets(address) ON DELETE CASCADE,
+      name           TEXT    NOT NULL,
+      created_at     BIGINT  NOT NULL
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS transaction_groups_wallet ON transaction_groups(wallet_address)`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS transaction_group_members (
+      group_id        INTEGER NOT NULL REFERENCES transaction_groups(id) ON DELETE CASCADE,
+      wallet_address  TEXT    NOT NULL,
+      signature       TEXT    NOT NULL,
+      usd_inflow      NUMERIC,
+      usd_outflow     NUMERIC,
+      price_fetched   BOOLEAN NOT NULL DEFAULT FALSE,
+      added_at        BIGINT  NOT NULL,
+      PRIMARY KEY (group_id, wallet_address, signature),
+      FOREIGN KEY (wallet_address, signature)
+        REFERENCES transactions(wallet_address, signature) ON DELETE CASCADE
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS tgm_wallet_sig ON transaction_group_members(wallet_address, signature)`;
 }
 
 export default sql;

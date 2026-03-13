@@ -1,197 +1,30 @@
-import React, { Fragment, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, ChevronDown, ExternalLink, Filter, Trash2, ChevronsDown, X } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { RefreshCw, ChevronDown, Filter, Trash2, ChevronsDown, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { useApp } from '../context/AppContext';
 import { useTransactions } from '../hooks/useTransactions';
 import { useStaking } from '../hooks/useStaking';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
-import { AddressDisplay } from '../components/shared/AddressDisplay';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { CategoryBadge } from '../components/shared/CategoryBadge';
+import { Toast } from '../components/shared/Toast';
+import { GroupBadges } from '../components/groups/GroupBadges';
+import { AddToGroupModal } from '../components/groups/AddToGroupModal';
+import { TxDetail } from '../components/transactions/TxDetail';
+import { useToast } from '../hooks/useToast';
 import { prefetchTokenMeta, getCachedTokenInfo } from '../lib/helius';
 import type { TokenMeta } from '../lib/helius';
 import { isSolMint, stakingRewardsToTransactions } from '../lib/taxCategorizer';
-import { clearStakingData } from '../lib/storage';
-import type { TaxCategory, ParsedTransaction, BalanceChange, RentItem } from '../types/transaction';
+import { summarizeTx } from '../lib/txSummary';
+import { clearStakingData, loadGroupMemberships } from '../lib/storage';
+import type { TaxCategory } from '../types/transaction';
+import type { GroupMemberships } from '../types/groups';
 
 const ALL_CATEGORIES: TaxCategory[] = [
   'TRADE', 'TRANSFER_IN', 'TRANSFER_OUT', 'STAKING_REWARD',
   'NFT_SALE', 'NFT_BUY', 'AIRDROP', 'BURN', 'FEE', 'OTHER',
   'STAKE_DELEGATE', 'STAKE_DEACTIVATE', 'STAKE_WITHDRAW',
 ];
-
-function resolveSymbol(mint: string, tokenMetas: Map<string, TokenMeta>): string {
-  if (isSolMint(mint)) return 'SOL';
-  return tokenMetas.get(mint)?.symbol ?? mint.slice(0, 6) + '…';
-}
-
-function formatAmount(bc: BalanceChange, tokenMetas: Map<string, TokenMeta>): string {
-  const symbol = resolveSymbol(bc.mint, tokenMetas);
-  const sign = bc.amount > 0 ? '+' : '-';
-  const amount = Math.abs(bc.amount).toLocaleString(undefined, { maximumFractionDigits: 6 });
-  return `${sign}${amount} ${symbol}`;
-}
-
-function summarizeChanges(changes: BalanceChange[], tokenMetas: Map<string, TokenMeta>): string {
-  if (changes.length === 0) return '—';
-  return changes.map(bc => formatAmount(bc, tokenMetas)).join(', ');
-}
-
-/** For TRADE txns: show "0.5 SOL, 10 USDC → 100 BONK" */
-function summarizeSwap(changes: BalanceChange[], tokenMetas: Map<string, TokenMeta>): string {
-  const sold = changes.filter(bc => bc.amount < 0);
-  const bought = changes.filter(bc => bc.amount > 0);
-  if (sold.length === 0 || bought.length === 0) return summarizeChanges(changes, tokenMetas);
-  const sellStr = sold
-    .map(bc => `${Math.abs(bc.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${resolveSymbol(bc.mint, tokenMetas)}`)
-    .join(' + ');
-  const buyStr = bought
-    .map(bc => `${bc.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${resolveSymbol(bc.mint, tokenMetas)}`)
-    .join(' + ');
-  return `${sellStr} → ${buyStr}`;
-}
-
-function summarizeTx(tx: ParsedTransaction, tokenMetas: Map<string, TokenMeta>, walletAddress: string | null, walletOnly: boolean): React.ReactNode {
-  const changes = walletOnly
-    ? tx.interpretedFlow.netChanges.filter(bc => !bc.userAccount || bc.userAccount === walletAddress)
-    : tx.interpretedFlow.netChanges;
-  const summary = tx.taxCategory === 'TRADE' ? summarizeSwap(changes, tokenMetas) : summarizeChanges(changes, tokenMetas);
-  if (tx.counterparty && (tx.taxCategory === 'TRANSFER_IN' || tx.taxCategory === 'TRANSFER_OUT')) {
-    const label = tx.taxCategory === 'TRANSFER_IN' ? 'From' : 'To';
-    const short = `${tx.counterparty.slice(0, 4)}…${tx.counterparty.slice(-4)}`;
-    return (
-      <span>
-        {summary}
-        <span className="ml-2 text-gray-500">{label}: {short}</span>
-      </span>
-    );
-  }
-  return summary;
-}
-
-function TokenLogo({ logoUri, symbol }: { logoUri: string | null; symbol: string }) {
-  if (!logoUri) return null;
-  return (
-    <img
-      src={logoUri}
-      alt={symbol}
-      className="w-4 h-4 rounded-full flex-shrink-0"
-      onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-    />
-  );
-}
-
-function ChangeRow({ bc, tokenMetas }: { bc: BalanceChange; tokenMetas: Map<string, TokenMeta> }) {
-  const isSol = bc.mint === 'SOL';
-  const meta = isSol ? null : tokenMetas.get(bc.mint) ?? null;
-  const symbol = isSol ? 'SOL' : (meta?.symbol ?? bc.mint.slice(0, 8) + '…');
-  const logoUri = meta?.logoUri ?? null;
-  const name = isSol ? 'Solana' : (meta?.name ?? bc.mint);
-  return (
-    <div className="flex items-center gap-2 text-gray-400">
-      <span className={bc.amount > 0 ? 'text-green-400' : 'text-red-400'}>
-        {bc.amount > 0 ? '↓ IN' : '↑ OUT'}
-      </span>
-      <span className="font-mono">
-        {Math.abs(bc.amount).toLocaleString(undefined, { maximumFractionDigits: 9 })}
-      </span>
-      <TokenLogo logoUri={logoUri} symbol={symbol} />
-      <span className="text-gray-300 font-medium" title={isSol ? undefined : bc.mint}>
-        {symbol}
-      </span>
-      {!isSol && meta?.name && meta.name !== symbol && (
-        <span className="text-gray-600">{name}</span>
-      )}
-    </div>
-  );
-}
-
-function RentRow({ item }: { item: RentItem }) {
-  return (
-    <div className="flex items-center gap-2 text-gray-500">
-      <span className="text-yellow-600">{item.amount < 0 ? '↑ RENT' : '↓ REFUND'}</span>
-      <span className="font-mono">{Math.abs(item.amount).toFixed(8)} SOL</span>
-      <span>{item.label}</span>
-      {item.refundable && <span className="text-gray-600">(refundable)</span>}
-    </div>
-  );
-}
-
-function TxDetail({
-  tx, tokenMetas, walletAddress, walletOnly,
-}: {
-  tx: ParsedTransaction;
-  tokenMetas: Map<string, TokenMeta>;
-  walletAddress: string | null;
-  walletOnly: boolean;
-}) {
-  const { netChanges, rentItems } = tx.interpretedFlow;
-  const filteredChanges = walletOnly
-    ? netChanges.filter(bc => !bc.userAccount || bc.userAccount === walletAddress)
-    : netChanges;
-
-  const footer = (
-    <div className="flex items-center gap-4 text-gray-600 pt-1">
-      {tx.slot > 0 && <span>Fee: {(tx.fee / 1e9).toFixed(6)} SOL</span>}
-      {tx.slot > 0 && <span>Slot: {tx.slot}</span>}
-      {tx.description && <span className="text-gray-500 italic">{tx.description}</span>}
-      {tx.err && <span className="text-red-500">FAILED: {tx.err}</span>}
-      {tx.slot > 0 && (
-        <a
-          href={`https://solscan.io/tx/${tx.signature}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1 text-blue-500 hover:text-blue-400"
-        >
-          View <ExternalLink size={11} />
-        </a>
-      )}
-    </div>
-  );
-
-  if (tx.taxCategory === 'TRADE') {
-    return (
-      <div className="bg-gray-950 border-t border-gray-800 px-4 py-3 text-xs space-y-2">
-        {filteredChanges.length > 0 && (
-          <div>
-            <p className="text-gray-500 mb-1">Movements</p>
-            {filteredChanges.map((bc, i) => <ChangeRow key={i} bc={bc} tokenMetas={tokenMetas} />)}
-          </div>
-        )}
-        {(rentItems.length > 0 || tx.slot > 0) && (
-          <div>
-            <p className="text-gray-500 mb-1">Breakdown</p>
-            {rentItems.map((item, i) => <RentRow key={i} item={item} />)}
-            {tx.slot > 0 && (
-              <div className="text-gray-600">Network fee: {(tx.fee / 1e9).toFixed(6)} SOL</div>
-            )}
-          </div>
-        )}
-        {footer}
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-gray-950 border-t border-gray-800 px-4 py-3 text-xs space-y-2">
-      {filteredChanges.length > 0 && (
-        <div>
-          <p className="text-gray-500 mb-1">Balance Changes</p>
-          {filteredChanges.map((bc, i) => <ChangeRow key={i} bc={bc} tokenMetas={tokenMetas} />)}
-        </div>
-      )}
-      {tx.counterparty && (
-        <div>
-          <p className="text-gray-500 mb-1">
-            {tx.taxCategory === 'TRANSFER_IN' ? 'From' : 'To'}
-          </p>
-          <AddressDisplay address={tx.counterparty} short={true} showExplorer={true} />
-        </div>
-      )}
-      {footer}
-    </div>
-  );
-}
 
 export function TransactionsPage() {
   const { activeAddress, settings } = useApp();
@@ -200,6 +33,7 @@ export function TransactionsPage() {
     fetchNew, fetchOlder, fetchAllHistory, cancelLoadAll, loadFromStorage, resetAndReload,
   } = useTransactions(activeAddress);
   const { stakingRewards, refresh } = useStaking(activeAddress);
+  const { toast, showToast, dismissToast } = useToast();
 
   const PAGE_SIZE = 50;
 
@@ -213,10 +47,19 @@ export function TransactionsPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [tokenMetas, setTokenMetas] = useState<Map<string, TokenMeta>>(new Map());
   const [page, setPage] = useState(1);
+  const [selectedSigs, setSelectedSigs] = useState<Set<string>>(new Set());
+  const [memberships, setMemberships] = useState<GroupMemberships>({});
+  const [showAddToGroup, setShowAddToGroup] = useState(false);
+
+  const refreshMemberships = (addr: string) => {
+    loadGroupMemberships(addr).then(m => m && setMemberships(m));
+  };
 
   useEffect(() => {
     loadFromStorage();
     setPage(1);
+    setSelectedSigs(new Set());
+    if (activeAddress) refreshMemberships(activeAddress);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAddress]);
 
@@ -378,7 +221,7 @@ export function TransactionsPage() {
                 type="checkbox"
                 checked={walletOnly}
                 onChange={e => setWalletOnly(e.target.checked)}
-                className="accent-purple-500"
+                className="w-4 h-4"
               />
               <span className="text-xs text-gray-300">Wallet changes only</span>
             </label>
@@ -387,7 +230,7 @@ export function TransactionsPage() {
                 type="checkbox"
                 checked={hideDust}
                 onChange={e => { setHideDust(e.target.checked); setPage(1); }}
-                className="accent-purple-500"
+                className="w-4 h-4"
               />
               <span className="text-xs text-gray-300">Hide dust (1 lamport)</span>
             </label>
@@ -418,6 +261,25 @@ export function TransactionsPage() {
         </div>
       )}
 
+      {/* Selection action bar */}
+      {selectedSigs.size > 0 && (
+        <div className="flex items-center gap-3 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2">
+          <span className="text-sm text-gray-300">{selectedSigs.size} selected</span>
+          <button
+            onClick={() => setShowAddToGroup(true)}
+            className="bg-purple-600 hover:bg-purple-700 text-white text-sm px-3 py-1 rounded"
+          >
+            Add to Group
+          </button>
+          <button
+            onClick={() => setSelectedSigs(new Set())}
+            className="text-gray-400 hover:text-white text-sm"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Transaction list */}
       {filtered.length > 0 && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
@@ -425,6 +287,23 @@ export function TransactionsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-800 text-xs text-gray-500">
+                  <th className="px-4 py-2">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4"
+                      disabled={paginated.every(tx => tx.slot === 0)}
+                      checked={paginated.filter(tx => tx.slot !== 0).length > 0 && paginated.filter(tx => tx.slot !== 0).every(tx => selectedSigs.has(tx.signature))}
+                      onChange={e => {
+                        const eligible = paginated.filter(tx => tx.slot !== 0).map(tx => tx.signature);
+                        setSelectedSigs(prev => {
+                          const next = new Set(prev);
+                          if (e.target.checked) eligible.forEach(s => next.add(s));
+                          else eligible.forEach(s => next.delete(s));
+                          return next;
+                        });
+                      }}
+                    />
+                  </th>
                   <th className="text-left px-4 py-2">Date</th>
                   <th className="text-left px-4 py-2">Category</th>
                   <th className="text-left px-4 py-2">Summary</th>
@@ -439,6 +318,22 @@ export function TransactionsPage() {
                       className={`border-b border-gray-800/50 hover:bg-gray-800/30 cursor-pointer ${tx.err ? 'opacity-50' : ''}`}
                       onClick={() => setExpandedSig(expandedSig === tx.signature ? null : tx.signature)}
                     >
+                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4"
+                          disabled={tx.slot === 0}
+                          checked={selectedSigs.has(tx.signature)}
+                          onChange={e => {
+                            setSelectedSigs(prev => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(tx.signature);
+                              else next.delete(tx.signature);
+                              return next;
+                            });
+                          }}
+                        />
+                      </td>
                       <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
                         <p>{format(new Date(tx.blockTime * 1000), 'MMM d, yyyy')}</p>
                         <p className="text-xs text-gray-600">{format(new Date(tx.blockTime * 1000), 'HH:mm:ss')}</p>
@@ -449,6 +344,7 @@ export function TransactionsPage() {
                       </td>
                       <td className="px-4 py-3 text-gray-300 max-w-xs truncate text-xs font-mono">
                         {summarizeTx(tx, tokenMetas, activeAddress, walletOnly)}
+                        <GroupBadges memberships={memberships[tx.signature] ?? []} />
                       </td>
                       <td className="px-4 py-3 text-right text-gray-500 font-mono text-xs">
                         {tx.slot > 0 ? (tx.fee / 1e9).toFixed(6) : '—'}
@@ -462,7 +358,7 @@ export function TransactionsPage() {
                     </tr>
                     {expandedSig === tx.signature && (
                       <tr>
-                        <td colSpan={5} className="p-0">
+                        <td colSpan={6} className="p-0">
                           <TxDetail tx={tx} tokenMetas={tokenMetas} walletAddress={activeAddress} walletOnly={walletOnly} />
                         </td>
                       </tr>
@@ -531,6 +427,22 @@ export function TransactionsPage() {
           )}
         </div>
       )}
+
+      {showAddToGroup && activeAddress && (
+        <AddToGroupModal
+          transactions={transactions.filter(tx => selectedSigs.has(tx.signature))}
+          walletAddress={activeAddress}
+          onClose={() => setShowAddToGroup(false)}
+          onSaved={(groupName, count) => {
+            showToast(`${count} transaction${count !== 1 ? 's' : ''} added to "${groupName}"`, 'success');
+            refreshMemberships(activeAddress);
+            setShowAddToGroup(false);
+            setSelectedSigs(new Set());
+          }}
+        />
+      )}
+
+      {toast && <Toast toast={toast} onDismiss={dismissToast} />}
     </div>
   );
 }

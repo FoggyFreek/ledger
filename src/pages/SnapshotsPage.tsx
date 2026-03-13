@@ -214,7 +214,7 @@ function SnapshotCard({ snapshot, onDelete }: { snapshot: WalletSnapshot; onDele
             <tbody>
               <tr className="border-b border-gray-800/50">
                 <td className="px-4 py-2 text-white flex items-center gap-2">
-                  <img src="https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png" alt="SOL" className="w-5 h-5 rounded-full" onError={e => (e.currentTarget.style.display = 'none')} />
+                  <img src="https://solscan.io/_next/static/media/solPriceLogo.76eeb122.png" alt="SOL" className="w-5 h-5 rounded-full" onError={e => (e.currentTarget.style.display = 'none')} />
                   SOL
                 </td>
                 <td className="px-4 py-2 text-right font-mono text-white">{snapshot.holdings.solBalance.toFixed(6)}</td>

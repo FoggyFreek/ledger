@@ -23,11 +23,16 @@ Helius Enhanced Tx API (v0)
 ### Key files
 - `src/types/api.ts` — Helius API response types (`HeliusWalletHistoryTx`, `HeliusAccountData`, etc.)
 - `src/types/transaction.ts` — Internal types (`ParsedTransaction`, `BalanceChange`, `InterpretedFlow`, `TaxCategory`)
-- `src/lib/taxCategorizer.ts` — `parseWalletHistoryTx()`, `categorize()`, `interpretTransaction()`, `getSwapSummary()`, `getSwapBreakdown()`
+- `src/types/groups.ts` — Group types (`TransactionGroup`, `GroupMember`, `GroupMemberInput`, `GroupMemberships`)
+- `src/lib/taxCategorizer.ts` — `parseWalletHistoryTx()`, `categorize()`, `interpretTransaction()`, `isSolMint()`, `stakingRewardsToTransactions()`
+- `src/lib/txSummary.ts` — Display helpers: `resolveSymbol()`, `formatAmount()`, `summarizeChanges()`, `summarizeSwap()`, `summarizeTx()` — used by TransactionsPage and GroupsPage for rendering transaction summaries
+- `src/lib/groupSummary.ts` — `aggregateBalances()` — aggregates balance changes across group members
+- `src/lib/groups.ts` — `computeUsdValues()` — fetches historical prices and computes USD inflow/outflow per transaction
 - `src/lib/helius.ts` — API client, fetches raw transactions from Helius
 - `src/hooks/useTransactions.ts` — React hook managing fetch/cache lifecycle
-- `src/lib/storage.ts` — PostgreSQL CRUD for transactions
-- `server/routes/transactions.ts` — Backend API routes
+- `src/lib/storage.ts` — PostgreSQL CRUD for transactions and groups
+- `server/routes/transactions.ts` — Backend API routes for transactions
+- `server/routes/groups.ts` — Backend API routes for transaction groups
 
 ### Tax categories (TaxCategory type)
 `TRADE`, `TRANSFER_IN`, `TRANSFER_OUT`, `STAKING_REWARD`, `NFT_SALE`, `NFT_BUY`, `AIRDROP`, `BURN`, `FEE`, `OTHER`, `STAKE_DELEGATE`, `STAKE_DEACTIVATE`, `STAKE_WITHDRAW`

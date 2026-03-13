@@ -22,20 +22,31 @@ const MAGIC_TOLERANCE = 0.000001;
 export function interpretTransaction(balanceChanges: BalanceChange[]): InterpretedFlow {
   // Step 1: Scan individual SOL entries BEFORE merging → collect rentItems
   const rentItems: RentItem[] = [];
+  const smallFeeSet = new Set<BalanceChange>();
   for (const bc of balanceChanges) {
     if (!isSolMint(bc.mint)) continue;
     const absAmt = Math.abs(bc.amount);
+    let isRent = false;
     for (const rent of MAGIC_RENT) {
       if (Math.abs(absAmt - rent.value) < MAGIC_TOLERANCE) {
         rentItems.push({ amount: bc.amount, label: rent.label, refundable: rent.refundable });
+        isRent = true;
         break;
       }
+    }
+    // Small non-rent SOL values become a 'Fee' rent item instead of a balance change
+    // Skip this heuristic for staking rewards — their small amounts are genuine income.
+    if (!isRent && !bc.isStakingReward && absAmt > 0 && absAmt < 0.005) {
+      smallFeeSet.add(bc);
+      rentItems.push({ amount: bc.amount, label: 'Fee', refundable: false });
     }
   }
 
   // Step 2: Group by mint, sum amounts; unify SOL + WSOL → 'SOL'
+  // Skip small fee entries — they are shown as rentItems instead.
   const grouped = new Map<string, { amount: number; decimals: number; userAccount?: string }>();
   for (const bc of balanceChanges) {
+    if (smallFeeSet.has(bc)) continue;
     const key = isSolMint(bc.mint) ? 'SOL' : bc.mint;
     const existing = grouped.get(key);
     if (existing) {
@@ -56,115 +67,7 @@ export function interpretTransaction(balanceChanges: BalanceChange[]): Interpret
   return { netChanges, rentItems };
 }
 
-/** Round to lamport precision (9 decimal places) to eliminate floating-point accumulation errors. */
-function round9(n: number): number {
-  return Math.round(n * 1e9) / 1e9;
-}
 
-export interface SwapBreakdownItem {
-  description: string;
-}
-
-/**
- * Returns "Swapped X FROM for Y TO" for a TRADE transaction.
- *
- * SOL economic amount = net of native SOL (So...111) entries only.
- * WSOL (So...112) entries reflect DEX-internal wrapping mechanics and are
- * intentionally excluded from the economic calculation to avoid double-counting.
- * Mints that net to zero (e.g. routing intermediaries) are excluded.
- */
-export function getSwapSummary(
-  rawChanges: BalanceChange[],
-  resolveSymbol: (mint: string) => string,
-): string {
-  const nativeSolNet = round9(rawChanges
-    .filter(bc => bc.mint === NATIVE_SOL_MINT)
-    .reduce((sum, bc) => sum + bc.amount, 0));
-
-  const tokenNets = new Map<string, number>();
-  for (const bc of rawChanges) {
-    if (isSolMint(bc.mint)) continue;
-    tokenNets.set(bc.mint, (tokenNets.get(bc.mint) ?? 0) + bc.amount);
-  }
-  const nonZeroTokens = [...tokenNets.entries()].filter(([, a]) => Math.abs(a) >= 1e-9);
-
-  let fromAmount: number;
-  let fromSymbol: string;
-  let toAmount: number;
-  let toSymbol: string;
-
-  if (nativeSolNet < -1e-9) {
-    fromAmount = Math.abs(nativeSolNet);
-    fromSymbol = 'SOL';
-    const [toMint, toAmt] = nonZeroTokens.find(([, a]) => a > 0)!;
-    toAmount = toAmt;
-    toSymbol = resolveSymbol(toMint);
-  } else if (nativeSolNet > 1e-9) {
-    const [fromMint, fromAmt] = nonZeroTokens.find(([, a]) => a < 0)!;
-    fromAmount = Math.abs(fromAmt);
-    fromSymbol = resolveSymbol(fromMint);
-    toAmount = nativeSolNet;
-    toSymbol = 'SOL';
-  } else {
-    const [fromMint, fromAmt] = nonZeroTokens.find(([, a]) => a < 0)!;
-    const [toMint, toAmt]     = nonZeroTokens.find(([, a]) => a > 0)!;
-    fromAmount = Math.abs(fromAmt);
-    fromSymbol = resolveSymbol(fromMint);
-    toAmount   = toAmt;
-    toSymbol   = resolveSymbol(toMint);
-  }
-
-  return `Swapped ${fromAmount} ${fromSymbol} for ${toAmount} ${toSymbol}`;
-}
-
-/**
- * Returns a two-item breakdown for a TRADE transaction:
- *   [0] "X TOKEN/SOL(WSOL) for swap plus platform fees"
- *   [1] "X SOL as transaction fees"
- *
- * Item [0] rule:
- *   - When WSOL (So...112) net is negative AND there is only one distinct
- *     non-SOL mint in the raw changes → show native SOL net as "SOL(WSOL)"
- *     (simple direct SOL→token swap)
- *   - Otherwise → show the non-SOL token with non-zero net
- *     (routing swap or token→SOL swap)
- */
-export function getSwapBreakdown(
-  rawChanges: BalanceChange[],
-  fee: number,
-  resolveSymbol: (mint: string) => string,
-): SwapBreakdownItem[] {
-  const wsolNet = rawChanges
-    .filter(bc => bc.mint === WSOL_MINT)
-    .reduce((sum, bc) => sum + bc.amount, 0);
-
-  const nativeSolNet = round9(rawChanges
-    .filter(bc => bc.mint === NATIVE_SOL_MINT)
-    .reduce((sum, bc) => sum + bc.amount, 0));
-
-  const nonSolMints = new Set(
-    rawChanges.filter(bc => !isSolMint(bc.mint)).map(bc => bc.mint),
-  );
-
-  const tokenNets = new Map<string, number>();
-  for (const bc of rawChanges) {
-    if (isSolMint(bc.mint)) continue;
-    tokenNets.set(bc.mint, (tokenNets.get(bc.mint) ?? 0) + bc.amount);
-  }
-  const nonZeroTokens = [...tokenNets.entries()].filter(([, a]) => Math.abs(a) >= 1e-9);
-
-  let swapLine: string;
-  if (wsolNet < -1e-9 && nonSolMints.size === 1) {
-    swapLine = `${Math.abs(nativeSolNet)} SOL(WSOL) for swap plus platform fees`;
-  } else {
-    const [mint, amount] = nonZeroTokens[0];
-    swapLine = `${Math.abs(amount)} ${resolveSymbol(mint)} for swap plus platform fees`;
-  }
-
-  const feeLine = `${fee / 1e9} SOL as transaction fees`;
-
-  return [{ description: swapLine }, { description: feeLine }];
-}
 
 export function categorize(changes: BalanceChange[]): TaxCategory {
   const tokens = changes.filter(c => !isSolMint(c.mint));
@@ -199,7 +102,7 @@ export function categorize(changes: BalanceChange[]): TaxCategory {
 
 export function stakingRewardsToTransactions(rewards: StakingReward[]): ParsedTransaction[] {
   return rewards.map(reward => {
-    const balanceChanges: BalanceChange[] = [{ mint: 'SOL', amount: reward.amount / 1e9, decimals: 9 }];
+    const balanceChanges: BalanceChange[] = [{ mint: 'SOL', amount: reward.amount / 1e9, decimals: 9, isStakingReward: true }];
     return {
       signature: `epoch-${reward.epoch}-${reward.stakeAccount}`,
       blockTime: reward.estimatedTimestamp,

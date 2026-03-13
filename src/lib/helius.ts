@@ -236,7 +236,12 @@ export interface TokenMeta {
   logoUri: string | null;
 }
 
-const _tokenRegistry = new Map<string, TokenMeta>();
+const SOL_LOGO_URI = 'https://solscan.io/_next/static/media/solPriceLogo.76eeb122.png';
+
+const _tokenRegistry = new Map<string, TokenMeta>([
+  ['So11111111111111111111111111111111111111111', { symbol: 'SOL', name: 'Solana', logoUri: SOL_LOGO_URI }],
+  ['So11111111111111111111111111111111111111112', { symbol: 'SOL', name: 'Wrapped SOL', logoUri: SOL_LOGO_URI }],
+]);
 
 export function getCachedTokenInfo(mint: string): TokenMeta | null {
   return _tokenRegistry.get(mint) ?? null;

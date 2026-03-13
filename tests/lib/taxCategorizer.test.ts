@@ -4,35 +4,14 @@
  * Covers:
  *  - isSolMint: must recognise native SOL (So...111) AND WSOL (So...112)
  *  - interpretTransaction: both SOL mints must be unified under the 'SOL' key
- *  - getSwapSummary: produces "Swapped X TOKEN for Y TOKEN" string
- *  - getSwapBreakdown: produces cost breakdown items + tx fee line
- *
- * These functions are imported from taxCategorizer.ts.
- * getSwapSummary and getSwapBreakdown do not exist yet — these tests define
- * the expected contract (TDD).
- *
- * Key algorithm notes derived from the test cases:
- *  - SOL economic amount  = net of native SOL (So...111) entries only
- *    (WSOL/So...112 entries are DEX-internal bookkeeping and are ignored for
- *     economic calculation to avoid double-counting)
- *  - Mints whose net amount rounds to zero are excluded from summary/breakdown
- *  - Breakdown "for swap" line: when WSOL is negative AND only one distinct
- *    non-SOL mint exists in the raw changes → show native SOL net as "X SOL(WSOL)";
- *    otherwise show the non-SOL token (routing swap or token-in case)
- *
- * NOTE: TC3 fee (7202 lamports) and TC4 fee (5600 lamports) expected strings in
- * the original spec appear to be off by 10× (extra leading zero missing).
- * Tests below use the correct conversion: fee / 1e9 SOL.
+ *  - parseWalletHistoryTx: wallet-only filtering, Seeker staking detection
  */
 
 import { describe, it, expect } from 'vitest';
 import {
   isSolMint,
   interpretTransaction,
-  getSwapSummary,
-  getSwapBreakdown,
   parseWalletHistoryTx,
-  categorize,
 } from '../../src/lib/taxCategorizer';
 import type { BalanceChange } from '../../src/types/transaction';
 import type { HeliusWalletHistoryTx } from '../../src/types/api';
@@ -44,19 +23,6 @@ const WSOL       = 'So11111111111111111111111111111111111111112';
 const USDC       = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const SKR        = 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3';
 const SPEAR_COIN = 'FYMByk8qRbW6gouy9V52wzWTrW1RuWPFUh75m2n3pump';
-
-// ─── Symbol resolver (stand-in for token registry) ───────────────────────────
-
-const SYMBOL_MAP: Record<string, string> = {
-  [USDC]:       'USDC',
-  [SKR]:        'SKR',
-  [SPEAR_COIN]: 'Spear Coin',
-};
-
-function resolveSymbol(mint: string): string {
-  if (isSolMint(mint)) return 'SOL';
-  return SYMBOL_MAP[mint] ?? mint.slice(0, 6) + '…';
-}
 
 // ─── Raw balance changes per test case ───────────────────────────────────────
 
@@ -72,11 +38,8 @@ const tc1: BalanceChange[] = [
   { mint: NATIVE_SOL,  amount: -0.00203928,  decimals: 9 },
   { mint: NATIVE_SOL,  amount:  0.00203928,  decimals: 9 },
 ];
-const TC1_FEE = 148904; // lamports
-
 /**
  * TC2: Swap SKR → SOL
- * Fee: 58205 lamports = 0.000058205 SOL
  */
 const tc2: BalanceChange[] = [
   { mint: SKR,         amount: -100,          decimals: 0 },
@@ -84,11 +47,8 @@ const tc2: BalanceChange[] = [
   { mint: NATIVE_SOL,  amount: -0.00203928,   decimals: 9 },
   { mint: NATIVE_SOL,  amount:  0.028670214,  decimals: 9 },
 ];
-const TC2_FEE = 58205; // lamports
-
 /**
  * TC3: Swap SOL → SKR (routed through USDC, which nets to zero)
- * Fee: 7202 lamports = 0.000007202 SOL
  */
 const tc3: BalanceChange[] = [
   { mint: WSOL,        amount: -0.0999,       decimals: 0, userAccount: '2YDWuxWfRPoJtor69iiTWG5GaJ2QeSZ9G2APxaxvuKaC' },
@@ -101,11 +61,8 @@ const tc3: BalanceChange[] = [
   { mint: NATIVE_SOL,  amount: -0.00203928,   decimals: 9 },
   { mint: NATIVE_SOL,  amount:  0.00203928,   decimals: 9 },
 ];
-const TC3_FEE = 7202; // lamports
-
 /**
  * TC4: Swap SOL → Spear Coin (no WSOL entries)
- * Fee: 5600 lamports = 0.0000056 SOL
  */
 const tc4: BalanceChange[] = [
   { mint: SPEAR_COIN,  amount:  571413.365957, decimals: 0 },
@@ -114,8 +71,6 @@ const tc4: BalanceChange[] = [
   { mint: NATIVE_SOL,  amount: -0.055287953,   decimals: 9 },
   { mint: NATIVE_SOL,  amount: -0.000525236,   decimals: 9 },
 ];
-const TC4_FEE = 5600; // lamports
-
 // ─── isSolMint ───────────────────────────────────────────────────────────────
 
 describe('isSolMint', () => {
@@ -182,11 +137,14 @@ describe('interpretTransaction — SOL/WSOL unification', () => {
     expect(skr!.amount).toBeCloseTo(372.434772, 6);
   });
 
-  it('TC4: only native SOL entries — unified to "SOL" with correct net', () => {
-    const { netChanges } = interpretTransaction(tc4);
+  it('TC4: small SOL amounts become rent items; only the large entry stays in netChanges', () => {
+    // -0.004, -0.000165864, -0.000525236 are all < 0.005 → moved to rentItems
+    // -0.055287953 is > 0.005 → stays in netChanges
+    const { netChanges, rentItems } = interpretTransaction(tc4);
     const sol = netChanges.find(c => c.mint === 'SOL');
     expect(sol).toBeDefined();
-    expect(sol!.amount).toBeCloseTo(-0.059979053, 9);
+    expect(sol!.amount).toBeCloseTo(-0.055287953, 9);
+    expect(rentItems).toHaveLength(3);
   });
 
   it('TC4: Spear Coin appears in netChanges at +571413.365957', () => {
@@ -194,119 +152,6 @@ describe('interpretTransaction — SOL/WSOL unification', () => {
     const spear = netChanges.find(c => c.mint === SPEAR_COIN);
     expect(spear).toBeDefined();
     expect(spear!.amount).toBeCloseTo(571413.365957, 6);
-  });
-});
-
-// ─── getSwapSummary ──────────────────────────────────────────────────────────
-//
-// Rules:
-//  - SOL amount = net of native SOL (So...111) entries (WSOL excluded)
-//  - Mints that net to zero are excluded
-//  - Format: "Swapped {|from|} {fromSymbol} for {to} {toSymbol}"
-
-describe('getSwapSummary', () => {
-  it('TC1: SOL → USDC', () => {
-    expect(getSwapSummary(tc1, resolveSymbol)).toBe(
-      'Swapped 0.10203928 SOL for 8.612385 USDC',
-    );
-  });
-
-  it('TC2: SKR → SOL', () => {
-    expect(getSwapSummary(tc2, resolveSymbol)).toBe(
-      'Swapped 100 SKR for 0.026630934 SOL',
-    );
-  });
-
-  it('TC3: SOL → SKR (USDC intermediate nets to zero, excluded)', () => {
-    expect(getSwapSummary(tc3, resolveSymbol)).toBe(
-      'Swapped 0.10203928 SOL for 372.434772 SKR',
-    );
-  });
-
-  it('TC4: SOL → Spear Coin (no WSOL entries)', () => {
-    expect(getSwapSummary(tc4, resolveSymbol)).toBe(
-      'Swapped 0.059979053 SOL for 571413.365957 Spear Coin',
-    );
-  });
-});
-
-// ─── getSwapBreakdown ────────────────────────────────────────────────────────
-//
-// Returns an array of { description: string } items:
-//   [0] "for swap plus platform fees" line — what was exchanged
-//   [1] "{fee SOL} as transaction fees"
-//
-// "for swap" line rules:
-//   - WSOL negative AND only one distinct non-SOL mint in raw changes:
-//       show native SOL net as "X SOL(WSOL) for swap plus platform fees"
-//   - Otherwise (routing swap or token→SOL):
-//       show the non-SOL token as "X TOKEN for swap plus platform fees"
-//
-// Fee line: fee (lamports) / 1e9, formatted via Number.toString()
-
-describe('getSwapBreakdown', () => {
-  it('TC1: swap line shows native SOL net labelled SOL(WSOL)', () => {
-    const items = getSwapBreakdown(tc1, TC1_FEE, resolveSymbol);
-    expect(items[0].description).toBe(
-      '0.10203928 SOL(WSOL) for swap plus platform fees',
-    );
-  });
-
-  it('TC1: fee line shows correct SOL amount', () => {
-    const items = getSwapBreakdown(tc1, TC1_FEE, resolveSymbol);
-    // 148904 lamports = 0.000148904 SOL
-    expect(items[1].description).toBe('0.000148904 SOL as transaction fees');
-  });
-
-  it('TC2: swap line shows SKR (the token sold)', () => {
-    const items = getSwapBreakdown(tc2, TC2_FEE, resolveSymbol);
-    expect(items[0].description).toBe('100 SKR for swap plus platform fees');
-  });
-
-  it('TC2: fee line shows correct SOL amount', () => {
-    const items = getSwapBreakdown(tc2, TC2_FEE, resolveSymbol);
-    // 58205 lamports = 0.000058205 SOL
-    expect(items[1].description).toBe('0.000058205 SOL as transaction fees');
-  });
-
-  it('TC3: swap line shows SKR (routing swap — USDC zeros out)', () => {
-    const items = getSwapBreakdown(tc3, TC3_FEE, resolveSymbol);
-    expect(items[0].description).toBe(
-      '372.434772 SKR for swap plus platform fees',
-    );
-  });
-
-  it('TC3: USDC does not appear in breakdown', () => {
-    const items = getSwapBreakdown(tc3, TC3_FEE, resolveSymbol);
-    expect(items.some(i => i.description.includes('USDC'))).toBe(false);
-  });
-
-  it('TC3: fee line shows correct SOL amount', () => {
-    const items = getSwapBreakdown(tc3, TC3_FEE, resolveSymbol);
-    // 7202 lamports = 0.000007202 SOL
-    // NOTE: original spec wrote "0.00007202" which appears to be a typo (off by 10×)
-    expect(items[1].description).toBe('0.000007202 SOL as transaction fees');
-  });
-
-  it('TC4: swap line shows Spear Coin (no WSOL present)', () => {
-    const items = getSwapBreakdown(tc4, TC4_FEE, resolveSymbol);
-    expect(items[0].description).toBe(
-      '571413.365957 Spear Coin for swap plus platform fees',
-    );
-  });
-
-  it('TC4: fee line shows correct SOL amount', () => {
-    const items = getSwapBreakdown(tc4, TC4_FEE, resolveSymbol);
-    // 5600 lamports = 0.0000056 SOL
-    // NOTE: original spec wrote "0.00005600" which appears to be a typo (off by 10×)
-    expect(items[1].description).toBe('0.0000056 SOL as transaction fees');
-  });
-
-  it('each test case produces exactly 2 breakdown items', () => {
-    expect(getSwapBreakdown(tc1, TC1_FEE, resolveSymbol)).toHaveLength(2);
-    expect(getSwapBreakdown(tc2, TC2_FEE, resolveSymbol)).toHaveLength(2);
-    expect(getSwapBreakdown(tc3, TC3_FEE, resolveSymbol)).toHaveLength(2);
-    expect(getSwapBreakdown(tc4, TC4_FEE, resolveSymbol)).toHaveLength(2);
   });
 });
 

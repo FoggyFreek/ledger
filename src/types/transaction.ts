@@ -18,6 +18,7 @@ export interface BalanceChange {
   amount: number;  // signed, decimal-adjusted (positive = received, negative = sent)
   decimals: number;
   userAccount?: string; // wallet address that owns this change (undefined = unknown/other account)
+  isStakingReward?: boolean; // true for synthetic staking reward entries — skip fee heuristics
 }
 
 export interface RentItem {

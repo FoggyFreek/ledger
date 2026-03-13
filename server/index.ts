@@ -9,6 +9,7 @@ import holdingsRoutes from './routes/holdings.js';
 import transactionsRoutes from './routes/transactions.js';
 import snapshotsRoutes from './routes/snapshots.js';
 import stakingRoutes from './routes/staking.js';
+import groupsRoutes from './routes/groups.js';
 
 const app = new Hono();
 
@@ -20,6 +21,7 @@ app.route('/api/v1', holdingsRoutes);
 app.route('/api/v1', transactionsRoutes);
 app.route('/api/v1', snapshotsRoutes);
 app.route('/api/v1', stakingRoutes);
+app.route('/api/v1', groupsRoutes);
 
 const port = parseInt(process.env.SERVER_PORT ?? '3001');
 

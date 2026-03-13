@@ -9,9 +9,8 @@ npm run dev       # Start Vite dev server (HMR, port 5173)
 npm run build     # Type-check + production build
 npm run lint      # ESLint
 npm run server    # Start Hono API server (port 3001)
+npm test          # Run Vitest test suite
 ```
-
-No test suite is configured.
 
 ## Architecture
 
@@ -21,7 +20,7 @@ No test suite is configured.
 
 - **`server/index.ts`** — Hono app served by `@hono/node-server` on port 3001 (env `SERVER_PORT`). Mounts all route modules under `/api/v1`.
 - **`server/db.ts`** — `postgres` client + `initDb()` which creates all tables on startup.
-- **`server/routes/`** — one file per resource: `settings`, `wallets`, `holdings`, `transactions`, `snapshots`, `staking`.
+- **`server/routes/`** — one file per resource: `settings`, `wallets`, `holdings`, `transactions`, `snapshots`, `staking`, `groups`.
 
 #### PostgreSQL schema
 
@@ -39,6 +38,8 @@ No test suite is configured.
 | `staking_rewards_meta` | `wallet_address` (PK/FK) | `epochs_fetched INTEGER[]` — tracks queried epochs including those with zero rewards |
 | `seeker_stake_accounts` | `(wallet_address, pubkey)` PK | `lamports`, `staked_raw NUMERIC`, `unstaking_amount NUMERIC` |
 | `seeker_stake_meta` | `wallet_address` (PK/FK) | `fetched_at` |
+| `transaction_groups` | `id` SERIAL PK | `wallet_address` (FK), `name`, `created_at` BIGINT |
+| `transaction_group_members` | `(group_id, wallet_address, signature)` PK | `usd_inflow`, `usd_outflow` NUMERIC, `price_fetched` BOOLEAN, `added_at` BIGINT; FK to both `transaction_groups` and `transactions` |
 
 ### State layers
 
@@ -75,6 +76,25 @@ Transactions are stored append-only. `useTransactions` has two fetch directions:
 - `fetchOlder` — fetches with `before: oldestSignature` to paginate backward
 
 `complete: true` is set when a page returns fewer than 100 results (end of history reached).
+
+### Transaction display (`src/lib/txSummary.ts`)
+
+Display helpers used by `TransactionsPage` and `GroupsPage`:
+- `resolveSymbol(mint, tokenMetas)` — SOL for any SOL-like mint, else looks up token registry, falls back to truncated mint
+- `formatAmount(bc, tokenMetas)` — formats a single `BalanceChange` as `"+1,234.56 SOL"`
+- `summarizeChanges(changes, tokenMetas)` — joins multiple changes comma-separated
+- `summarizeSwap(changes, tokenMetas)` — `"X TOKEN → Y TOKEN"` for TRADE transactions
+- `summarizeTx(tx, tokenMetas, walletAddress, walletOnly)` — main entry point; dispatches to `summarizeSwap` or `summarizeChanges`, appends counterparty label for transfers
+
+### Transaction groups (`src/pages/GroupsPage.tsx`)
+
+Users can tag transactions into named groups for cost-basis tracking. Each group member stores `usdInflow`/`usdOutflow` computed via `computeUsdValues()` in `src/lib/groups.ts` (fetches historical prices from an external price API at transaction `blockTime`).
+
+- **`src/lib/groups.ts`** — `computeUsdValues(transactions[])` — batches price fetches by timestamp, returns `GroupMemberInput[]` with USD values
+- **`src/lib/groupSummary.ts`** — `aggregateBalances(members[])` — runs `interpretTransaction` on each member's `balanceChanges`, accumulates per-mint `inTotal`/`outTotal`/`netTotal`; sorted by `|inTotal - outTotal|` descending
+- **`src/types/groups.ts`** — `TransactionGroup`, `GroupMember`, `GroupMemberInput`, `GroupMemberships` types
+- **`src/components/groups/`** — `GroupBadges`, `AddToGroupModal` components
+- Group memberships for the active wallet are loaded in a single call (`GET /api/v1/wallets/:addr/group-memberships`) and passed down as `GroupMemberships` (a `Record<signature, {id, name}[]>`)
 
 ### Tax categorization (`src/lib/taxCategorizer.ts`)
 

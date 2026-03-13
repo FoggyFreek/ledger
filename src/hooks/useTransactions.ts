@@ -36,18 +36,30 @@ export function useTransactions(address: string | null) {
     setError(null);
     try {
       const stored = await loadTransactions(address);
-      const { data: raw } = await getWalletHistory(address, {
-        after: stored.newestSignature ?? undefined,
-        limit: 100,
-      });
-      if (raw.length === 0) return;
-      const parsed = raw.map(tx => parseWalletHistoryTx(tx, address));
-      // Deduplicate by signature in case the `after` cursor is inclusive
       const existingSigs = new Set(stored.data.map(tx => tx.signature));
-      const newOnly = parsed.filter(tx => !existingSigs.has(tx.signature));
-      const merged = sortDesc([...newOnly, ...stored.data]);
+      const allNew: ParsedTransaction[] = [];
+      let before: string | undefined = undefined;
+
+      // Paginate forward collecting all txns newer than newestSignature
+      while (true) {
+        const { data: raw, hasMore } = await getWalletHistory(address, {
+          after: stored.newestSignature ?? undefined,
+          before,
+          limit: 100,
+        });
+        if (raw.length === 0) break;
+        const parsed = raw.map(tx => parseWalletHistoryTx(tx, address));
+        const newOnly = parsed.filter(tx => !existingSigs.has(tx.signature));
+        allNew.push(...newOnly);
+        // Stop if no more pages, or we've hit signatures we already have
+        if (!hasMore || newOnly.length < parsed.length) break;
+        before = raw[raw.length - 1].signature;
+      }
+
+      if (allNew.length === 0) return;
+      const merged = sortDesc([...allNew, ...stored.data]);
       const next = {
-        data: newOnly,
+        data: allNew,
         newestSignature: merged[0]?.signature ?? null,
         oldestSignature: stored.oldestSignature ?? merged[merged.length - 1]?.signature ?? null,
         complete: stored.complete,

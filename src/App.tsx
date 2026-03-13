@@ -4,7 +4,8 @@ import { Sidebar } from './components/layout/Sidebar';
 import { OverviewPage } from './pages/OverviewPage';
 import { TransactionsPage } from './pages/TransactionsPage';
 import { SnapshotsPage } from './pages/SnapshotsPage';
-type Page = 'overview' | 'transactions' | 'snapshots';
+import { GroupsPage } from './pages/GroupsPage';
+type Page = 'overview' | 'transactions' | 'snapshots' | 'groups';
 
 function AppShell() {
   const [page, setPage] = useState<Page>('overview');
@@ -16,6 +17,7 @@ function AppShell() {
         {page === 'overview' && <OverviewPage />}
         {page === 'transactions' && <TransactionsPage />}
         {page === 'snapshots' && <SnapshotsPage />}
+        {page === 'groups' && <GroupsPage />}
       </main>
     </div>
   );
