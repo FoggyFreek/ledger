@@ -14,22 +14,26 @@ export async function computeUsdValues(transactions: ParsedTransaction[]): Promi
     byTimestamp.set(tx.blockTime, list);
   }
 
-  // Fetch prices for each unique timestamp
+  // Fetch prices for each unique timestamp, max 5 concurrent to avoid hammering DeFiLlama
   const pricesByTimestamp = new Map<number, Map<string, number>>();
-  await Promise.all(
-    [...byTimestamp.keys()].map(async (ts) => {
-      const txsAtTs = byTimestamp.get(ts)!;
-      const mints = [...new Set(
-        txsAtTs.flatMap(tx =>
-          tx.interpretedFlow.netChanges.map(bc =>
-            isSolMint(bc.mint) ? SOL_MINT : bc.mint
+  const timestamps = [...byTimestamp.keys()];
+  const CONCURRENCY = 5;
+  for (let i = 0; i < timestamps.length; i += CONCURRENCY) {
+    await Promise.all(
+      timestamps.slice(i, i + CONCURRENCY).map(async (ts) => {
+        const txsAtTs = byTimestamp.get(ts)!;
+        const mints = [...new Set(
+          txsAtTs.flatMap(tx =>
+            tx.interpretedFlow.netChanges.map(bc =>
+              isSolMint(bc.mint) ? SOL_MINT : bc.mint
+            )
           )
-        )
-      )];
-      const prices = await fetchHistoricalPrices(mints, ts);
-      pricesByTimestamp.set(ts, prices);
-    })
-  );
+        )];
+        const prices = await fetchHistoricalPrices(mints, ts);
+        pricesByTimestamp.set(ts, prices);
+      })
+    );
+  }
 
   return transactions.map(tx => {
     const prices = pricesByTimestamp.get(tx.blockTime) ?? new Map<string, number>();

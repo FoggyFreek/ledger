@@ -4,25 +4,13 @@ import type {
 } from '../types/api';
 import type { WalletHoldings, TokenHolding, StakeAccount, StakingReward, SeekerStakeAccount } from '../types/wallet';
 
-let _apiKey = '';
-
-export function setApiKey(key: string) {
-  _apiKey = key;
-}
-
-function getApiKey(): string {
-  if (!_apiKey) throw new Error('Helius API key not set. Please add it in Settings.');
-  return _apiKey;
-}
-
-function dasUrl() {
-  return `https://mainnet.helius-rpc.com/?api-key=${getApiKey()}`;
-}
+const PROXY_RPC_URL = '/api/v1/helius/rpc';
 
 // Rate limiter: max 5 req/s (sliding window) + max 3 concurrent
 const MAX_RPS = 5;
 const WINDOW_MS = 1000;
 const MAX_CONCURRENT = 3;
+let requestTimeStart = 0;
 const requestTimes: number[] = [];
 const queue: Array<() => Promise<void>> = [];
 let running = 0;
@@ -30,14 +18,19 @@ let running = 0;
 async function acquireSlot(): Promise<void> {
   while (true) {
     const now = Date.now();
-    while (requestTimes.length > 0 && requestTimes[0] <= now - WINDOW_MS) {
-      requestTimes.shift();
+    while (requestTimeStart < requestTimes.length && requestTimes[requestTimeStart] <= now - WINDOW_MS) {
+      requestTimeStart++;
     }
-    if (requestTimes.length < MAX_RPS) {
+    if (requestTimeStart > 100) {
+      requestTimes.splice(0, requestTimeStart);
+      requestTimeStart = 0;
+    }
+    const activeCount = requestTimes.length - requestTimeStart;
+    if (activeCount < MAX_RPS) {
       requestTimes.push(now);
       return;
     }
-    await new Promise(r => setTimeout(r, requestTimes[0] + WINDOW_MS - now + 1));
+    await new Promise(r => setTimeout(r, requestTimes[requestTimeStart] + WINDOW_MS - now + 1));
   }
 }
 
@@ -80,7 +73,7 @@ function enqueue<T>(fn: () => Promise<T>): Promise<T> {
 
 async function rpc<T>(method: string, params: unknown[]): Promise<T> {
   return enqueue(async () => {
-    const res = await fetch(dasUrl(), {
+    const res = await fetch(PROXY_RPC_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
@@ -101,7 +94,7 @@ export async function getAssetsByOwner(owner: string): Promise<WalletHoldings> {
 
   while (true) {
     const result = await enqueue(async () => {
-      const res = await fetch(dasUrl(), {
+      const res = await fetch(PROXY_RPC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -190,16 +183,18 @@ export async function getWalletHistory(
   options: { before?: string; after?: string; limit?: number } = {}
 ): Promise<{ data: HeliusWalletHistoryTx[]; hasMore: boolean; nextCursor: string | null }> {
   return enqueue(async () => {
-    const params = new URLSearchParams({
+    const params: Record<string, string> = {
       limit: String(options.limit ?? 100),
       'token-accounts': 'balanceChanged',
-    });
-    if (options.before) params.set('before-signature', options.before);
-    if (options.after) params.set('after-signature', options.after);
+    };
+    if (options.before) params['before-signature'] = options.before;
+    if (options.after) params['after-signature'] = options.after;
 
-    const res = await fetch(
-      `https://api-mainnet.helius-rpc.com/v0/addresses/${address}/transactions?api-key=${getApiKey()}&${params}`
-    );
+    const res = await fetch('/api/v1/helius/enhanced-transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address, params }),
+    });
     if (!res.ok) {
       const txt = await res.text();
       throw new Error(`Helius wallet history error: ${res.status} ${txt}`);
@@ -247,10 +242,15 @@ export function getCachedTokenInfo(mint: string): TokenMeta | null {
   return _tokenRegistry.get(mint) ?? null;
 }
 
+const TOKEN_REGISTRY_MAX = 10_000;
+
 function registerToken(mint: string, meta: TokenMeta) {
-  if (!_tokenRegistry.has(mint)) {
-    _tokenRegistry.set(mint, meta);
+  if (_tokenRegistry.has(mint)) return;
+  if (_tokenRegistry.size >= TOKEN_REGISTRY_MAX) {
+    const firstKey = _tokenRegistry.keys().next().value;
+    if (firstKey !== undefined) _tokenRegistry.delete(firstKey);
   }
+  _tokenRegistry.set(mint, meta);
 }
 
 /**
@@ -266,7 +266,7 @@ export async function prefetchTokenMeta(mints: string[]): Promise<void> {
     const chunk = unknown.slice(i, i + 1000);
     try {
       const result = await enqueue(async () => {
-        const res = await fetch(dasUrl(), {
+        const res = await fetch(PROXY_RPC_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -523,8 +523,10 @@ async function getSeekerSharePrice(): Promise<bigint> {
     if (!result.value) return SEEKER_SHARE_PRICE_PRECISION;
     const bytes = Uint8Array.from(atob(result.value.data[0]), c => c.charCodeAt(0));
     const view = new DataView(bytes.buffer);
-    if (bytes.length > SEEKER_SHARE_PRICE_OFFSET + 7) {
-      return view.getBigUint64(SEEKER_SHARE_PRICE_OFFSET, true);
+    if (bytes.length >= SEEKER_SHARE_PRICE_OFFSET + 16) {
+      const lo = view.getBigUint64(SEEKER_SHARE_PRICE_OFFSET, true);
+      const hi = view.getBigUint64(SEEKER_SHARE_PRICE_OFFSET + 8, true);
+      return lo + (hi << 64n);
     }
   } catch {
     // fall through to default
@@ -554,8 +556,10 @@ export async function getSeekerStakeAccounts(walletAddress: string): Promise<See
     try {
       const bytes = Uint8Array.from(atob(r.account.data[0]), c => c.charCodeAt(0));
       const view = new DataView(bytes.buffer);
-      if (bytes.length > SEEKER_SHARES_OFFSET + 7) {
-        const shares = view.getBigUint64(SEEKER_SHARES_OFFSET, true);
+      if (bytes.length >= SEEKER_SHARES_OFFSET + 16) {
+        const sharesLo = view.getBigUint64(SEEKER_SHARES_OFFSET, true);
+        const sharesHi = view.getBigUint64(SEEKER_SHARES_OFFSET + 8, true);
+        const shares = sharesLo + (sharesHi << 64n);
         stakedRaw = (shares * sharePrice) / SEEKER_SHARE_PRICE_PRECISION;
       }
       if (bytes.length > SEEKER_UNSTAKING_OFFSET + 7) {

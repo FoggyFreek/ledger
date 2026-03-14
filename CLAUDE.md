@@ -14,13 +14,13 @@ npm test          # Run Vitest test suite
 
 ## Architecture
 
-**React frontend + Hono/PostgreSQL backend.** The browser fetches Helius directly for blockchain data; all app state (wallets, cached holdings, transactions, snapshots, staking) is persisted in PostgreSQL via a local REST API. The API key is stored in the `settings` table and injected at runtime via `setApiKey()` in `src/lib/helius.ts`.
+**React frontend + Hono/PostgreSQL backend.** All Helius API calls are proxied through the backend (`/api/v1/helius/rpc` and `/api/v1/helius/enhanced-transactions`), keeping the API key server-side only. All app state (wallets, cached holdings, transactions, snapshots, staking) is persisted in PostgreSQL via a local REST API.
 
 ### Backend (`server/`)
 
 - **`server/index.ts`** — Hono app served by `@hono/node-server` on port 3001 (env `SERVER_PORT`). Mounts all route modules under `/api/v1`.
 - **`server/db.ts`** — `postgres` client + `initDb()` which creates all tables on startup.
-- **`server/routes/`** — one file per resource: `settings`, `wallets`, `holdings`, `transactions`, `snapshots`, `staking`, `groups`.
+- **`server/routes/`** — one file per resource: `settings`, `wallets`, `holdings`, `transactions`, `snapshots`, `staking`, `groups`, `helius` (API proxy).
 
 #### PostgreSQL schema
 
@@ -51,7 +51,7 @@ npm test          # Run Vitest test suite
 
 No router library. `App.tsx` holds a `page` string in `useState` and renders the active page component. `Sidebar.tsx` calls `onPageChange`.
 
-### API integration (`src/lib/helius.ts`)
+### API integration (`src/lib/helius.ts`, proxied via `server/routes/helius.ts`)
 
 Helius endpoints used:
 - **DAS `getAssetsByOwner`** — fetches all SOL + SPL token holdings with metadata and prices in one call (`showFungible: true`, `showNativeBalance: true`). Results are automatically registered in the token registry.
@@ -63,7 +63,7 @@ Helius endpoints used:
 - **RPC `getInflationReward`** — fetches epoch-by-epoch staking rewards for a list of stake account pubkeys. Called per epoch in parallel by `getInflationRewards()`.
 - **RPC `getEpochInfo` / `getEpochSchedule`** — used to classify stake account status and estimate reward timestamps.
 
-A module-level `enqueue` function rate-limits outgoing requests using a **sliding window** (max 10 req/s) plus a concurrency cap of 5 in-flight requests. All API methods throw typed `Error` objects on failure.
+All Helius requests are proxied through the backend (`POST /api/v1/helius/rpc` for JSON-RPC/DAS, `POST /api/v1/helius/enhanced-transactions` for Enhanced Transactions). The backend reads the API key from the `settings` table and injects it server-side. A module-level `enqueue` function in the frontend rate-limits outgoing requests using a **sliding window** (max 5 req/s) plus a concurrency cap of 3 in-flight requests. All API methods throw typed `Error` objects on failure.
 
 #### Token registry (`_tokenRegistry`)
 

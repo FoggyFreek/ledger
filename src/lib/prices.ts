@@ -1,6 +1,12 @@
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const BATCH_SIZE = 25;
 
+// DeFiLlama public API has an undocumented rate limit. Without a delay between
+// sequential batch requests we reliably hit 429s when fetching prices for many
+// mints. 200 ms gives ~5 req/s which stays well under the observed threshold.
+// DO NOT remove this delay or collapse the batched loop into Promise.all.
+const DEFI_LLAMA_INTER_BATCH_DELAY_MS = 200;
+
 /**
  * Fetch historical USD prices for Solana tokens at a given unix timestamp.
  * Uses the DeFiLlama public API (no key required).
@@ -17,8 +23,9 @@ export async function fetchHistoricalPrices(
   // Deduplicate
   const unique = [...new Set(mints)];
 
-  // Batch into groups to avoid URL length limits
+  // Batched sequentially (not Promise.all) to respect DeFiLlama rate limits.
   for (let i = 0; i < unique.length; i += BATCH_SIZE) {
+    if (i > 0) await new Promise(r => setTimeout(r, DEFI_LLAMA_INTER_BATCH_DELAY_MS));
     const batch = unique.slice(i, i + BATCH_SIZE);
     const coins = batch.map(m => `solana:${m}`).join(',');
     const url = `https://coins.llama.fi/prices/historical/${unixTimestamp}/${coins}`;

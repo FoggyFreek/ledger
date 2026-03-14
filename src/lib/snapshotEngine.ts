@@ -30,6 +30,15 @@ export async function createSnapshot(
     .filter(tx => tx.blockTime <= targetTs && tx.err === null)
     .sort((a, b) => a.blockTime - b.blockTime);
 
+  // Converts a float amount to raw bigint without losing precision for high-decimal tokens.
+  // toFixed caps at the float's ~15 significant digits, then we parse as integer.
+  function floatToRawBigInt(amount: number, decimals: number): bigint {
+    const str = amount.toFixed(Math.min(decimals, 15));
+    const [intStr, fracStr = ''] = str.split('.');
+    const paddedFrac = fracStr.padEnd(decimals, '0').slice(0, decimals);
+    return BigInt(intStr + paddedFrac);
+  }
+
   // Reconstruct token balances by replaying individual balance changes
   const tokenMap = new Map<string, bigint>(); // mint -> raw amount
   const tokenDecimals = new Map<string, number>();
@@ -38,9 +47,9 @@ export async function createSnapshot(
   for (const tx of filtered) {
     for (const bc of tx.balanceChanges) {
       if (isSolMint(bc.mint)) {
-        solLamports += BigInt(Math.round(bc.amount * 1e9));
+        solLamports += floatToRawBigInt(bc.amount, 9);
       } else {
-        const rawDelta = BigInt(Math.round(bc.amount * Math.pow(10, bc.decimals)));
+        const rawDelta = floatToRawBigInt(bc.amount, bc.decimals);
         const current = tokenMap.get(bc.mint) ?? BigInt(0);
         tokenMap.set(bc.mint, current + rawDelta);
         if (!tokenDecimals.has(bc.mint)) {

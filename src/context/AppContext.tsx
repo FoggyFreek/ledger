@@ -5,7 +5,6 @@ import {
   loadWallets, saveWallets,
   loadSettings, saveSettings,
 } from '../lib/storage';
-import { setApiKey } from '../lib/helius';
 
 interface AppContextValue {
   wallets: WalletEntry[];
@@ -32,7 +31,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (w.length > 0) setActiveAddress(w[0].address);
       const s = await loadSettings();
       setSettings(s);
-      setApiKey(s.apiKey);
     })();
   }, []);
 
@@ -66,7 +64,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateSettings = useCallback((s: Settings) => {
     setSettings(s);
     saveSettings(s);
-    setApiKey(s.apiKey);
   }, []);
 
   return (

@@ -1,11 +1,18 @@
 import { getBlockTime, getCurrentSlot } from './helius';
 
 const SLOT_CACHE = new Map<number, number>();
+const SLOT_CACHE_MAX = 500;
 
 async function cachedBlockTime(slot: number): Promise<number | null> {
   if (SLOT_CACHE.has(slot)) return SLOT_CACHE.get(slot)!;
   const t = await getBlockTime(slot);
-  if (t !== null) SLOT_CACHE.set(slot, t);
+  if (t !== null) {
+    if (SLOT_CACHE.size >= SLOT_CACHE_MAX) {
+      const firstKey = SLOT_CACHE.keys().next().value;
+      if (firstKey !== undefined) SLOT_CACHE.delete(firstKey);
+    }
+    SLOT_CACHE.set(slot, t);
+  }
   return t;
 }
 

@@ -22,10 +22,15 @@ export interface StoredTransactions {
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T | null> {
   try {
     const res = await fetch(url, options);
-    if (!res.ok) return null;
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`API error ${res.status}`);
     return res.json() as Promise<T>;
-  } catch {
-    return null;
+  } catch (e) {
+    if (e instanceof TypeError) {
+      console.error('Network error', url, e);
+      return null;
+    }
+    throw e;
   }
 }
 
@@ -109,15 +114,11 @@ export async function clearHoldings(address: string): Promise<void> {
 }
 
 // Transactions
-const EMPTY_STORED: StoredTransactions = {
-  data: [],
-  oldestSignature: null,
-  newestSignature: null,
-  complete: false,
-};
-
 export async function loadTransactions(address: string): Promise<StoredTransactions> {
-  const result = (await apiFetch<StoredTransactions>(`/api/v1/wallets/${address}/transactions`)) ?? EMPTY_STORED;
+  const result = await apiFetch<StoredTransactions>(`/api/v1/wallets/${address}/transactions`);
+  if (!result) {
+    return { data: [], oldestSignature: null, newestSignature: null, complete: false };
+  }
   return { ...result, data: result.data.map(withInterpretedFlow) };
 }
 
