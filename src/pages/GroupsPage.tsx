@@ -11,7 +11,7 @@ import { prefetchTokenMeta, getCachedTokenInfo } from '../lib/helius';
 import type { TokenMeta } from '../lib/helius';
 import { isSolMint, interpretTransaction } from '../lib/taxCategorizer';
 import { aggregateBalances } from '../lib/groupSummary';
-import { summarizeTx } from '../lib/txSummary';
+import { summarizeTx, resolveSymbol } from '../lib/txSummary';
 import { computeUsdValues } from '../lib/groups';
 import {
   loadGroups, loadGroupMembers, renameGroup, deleteGroup,
@@ -39,16 +39,28 @@ function memberToTx(m: GroupMember): ParsedTransaction {
 }
 
 
-function resolveSymbol(mint: string, tokenMetas: Map<string, TokenMeta>): string {
-  if (isSolMint(mint)) return 'SOL';
-  return tokenMetas.get(mint)?.symbol ?? mint.slice(0, 6) + '…';
-}
-
 /** Split a formatted number string at the decimal point for decimal-aligned rendering. */
 function fmtSplit(abs: number): [string, string] {
   const s = abs.toLocaleString(undefined, { maximumFractionDigits: 6 });
   const dot = s.indexOf('.');
   return dot === -1 ? [s, ''] : [s.slice(0, dot), s.slice(dot)];
+}
+
+function UsdValueCell({ usdInflow, usdOutflow, taxCategory }: {
+  usdInflow: number | null;
+  usdOutflow: number | null;
+  taxCategory: string;
+}) {
+  if (usdInflow == null && usdOutflow == null) {
+    return <span className="text-gray-600">—</span>;
+  }
+  const inflow = usdInflow ?? 0;
+  const outflow = usdOutflow ?? 0;
+  const isTrade = taxCategory === 'TRADE';
+  const isPositive = inflow >= outflow;
+  const sign = isTrade ? '' : isPositive ? '+' : '−';
+  const color = isTrade ? 'text-gray-300' : isPositive ? 'text-green-400' : 'text-red-400';
+  return <span className={color}>{sign}${Math.max(inflow, outflow).toFixed(2)}</span>;
 }
 
 /**
@@ -121,10 +133,9 @@ export function GroupsPage() {
     if (!activeAddress || selectedId == null) return;
     setLoadingMembers(true);
     setExpandedSig(null);
-    loadGroupMembers(activeAddress, selectedId).then(ms => {
-      setMembers(ms);
-      setLoadingMembers(false);
-    });
+    loadGroupMembers(activeAddress, selectedId)
+      .then(setMembers)
+      .finally(() => setLoadingMembers(false));
   }, [activeAddress, selectedId]);
 
   // Prefetch token metadata whenever the member list changes
@@ -391,21 +402,11 @@ export function GroupsPage() {
                                 {summarizeTx(tx, tokenMetas, activeAddress, true)}
                               </td>
                               <td className="px-4 py-3 text-right text-xs font-mono">
-                                {(m.usdInflow != null || m.usdOutflow != null) ? (() => {
-                                  const inflow = m.usdInflow ?? 0;
-                                  const outflow = m.usdOutflow ?? 0;
-                                  const isTrade = m.taxCategory === 'TRADE';
-                                  const isPositive = inflow >= outflow;
-                                  const sign = isTrade ? '' : isPositive ? '+' : '−';
-                                  const color = isTrade ? 'text-gray-300' : isPositive ? 'text-green-400' : 'text-red-400';
-                                  return (
-                                    <span className={color}>
-                                      {sign}${Math.max(inflow, outflow).toFixed(2)}
-                                    </span>
-                                  );
-                                })() : (
-                                  <span className="text-gray-600">—</span>
-                                )}
+                                <UsdValueCell
+                                  usdInflow={m.usdInflow ?? null}
+                                  usdOutflow={m.usdOutflow ?? null}
+                                  taxCategory={m.taxCategory}
+                                />
                               </td>
                               <td className="px-2 py-3 text-right">
                                 <ChevronDown
