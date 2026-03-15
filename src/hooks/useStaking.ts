@@ -38,16 +38,18 @@ export function useStaking(address: string | null) {
   const refresh = useCallback(async (force = false) => {
     if (!address) return;
 
-    const cached = await loadStakeAccounts(address);
-    if (!force && cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-      setStakeAccounts(cached.data);
-      const cachedRewards = await loadStakingRewards(address);
-      if (cachedRewards) setStakingRewards(cachedRewards.data);
-      const cachedSeeker = await loadSeekerStakeAccounts(address);
-      if (cachedSeeker) setSeekerAccounts(cachedSeeker.data);
-      return;
-    }
+    // Check stored data first and use if recent enough to avoid unnecessary RPC calls
+    // const cached = await loadStakeAccounts(address);
+    // if (!force && cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    //   setStakeAccounts(cached.data);
+    //   const cachedRewards = await loadStakingRewards(address);
+    //   if (cachedRewards) setStakingRewards(cachedRewards.data);
+    //   const cachedSeeker = await loadSeekerStakeAccounts(address);
+    //   if (cachedSeeker) setSeekerAccounts(cachedSeeker.data);
+    //   return;
+    // }
 
+    // No recent stored data, fetch fresh data
     setLoading(true);
     setError(null);
     try {
@@ -65,13 +67,34 @@ export function useStaking(address: string | null) {
       if (pubkeys.length > 0) {
         let currentEpoch = 700;
         try { currentEpoch = await fetchCurrentEpoch(); } catch { /* use fallback */ }
+
+        const rewardsCache = await loadStakingRewards(address);
+        const existingRewards = rewardsCache?.data ?? [];
+        const epochsFetchedSet = new Set(rewardsCache?.epochsFetched ?? []);
+
         const from = Math.min(...accounts.map(a => a.activationEpoch));
         const to = currentEpoch - 1;
-        const rewards = await getInflationRewards(pubkeys, { from, to });
-        saveStakingRewards(address, rewards);
-        setStakingRewards(rewards);
+
+        // Only fetch epochs not already recorded (rewards or zero)
+        const epochsToFetch: number[] = [];
+        for (let e = from; e <= to; e++) {
+          if (!epochsFetchedSet.has(e)) epochsToFetch.push(e);
+        }
+
+        if (epochsToFetch.length > 0) {
+          const allNew: StakingReward[] = [];
+          for (const { from: rf, to: rt } of toRanges(epochsToFetch)) {
+            const rewards = await getInflationRewards(pubkeys, { from: rf, to: rt });
+            allNew.push(...rewards);
+          }
+          const merged = mergeRewards(existingRewards, allNew);
+          const newEpochsFetched = [...epochsFetchedSet, ...epochsToFetch];
+          saveStakingRewards(address, merged, newEpochsFetched);
+          setStakingRewards(merged);
+        } else {
+          setStakingRewards(existingRewards);
+        }
       } else {
-        saveStakingRewards(address, []);
         setStakingRewards([]);
       }
     } catch (e) {
@@ -102,14 +125,15 @@ export function useStaking(address: string | null) {
     }
   }, [address]);
 
-  // Fetch only epochs newer than each account's own most recent stored epoch.
-  // Accounts are grouped by their neededFrom to minimise RPC calls.
+  // Fetch epochs newer than the latest stored epoch, skipping any already in epochsFetched.
   const updateRewards = useCallback(async () => {
     if (!address) return;
     const accounts = (await loadStakeAccounts(address))?.data ?? stakeAccounts;
     if (accounts.length === 0) return;
 
-    const existing = (await loadStakingRewards(address))?.data ?? stakingRewards;
+    const rewardsCache = await loadStakingRewards(address);
+    const existing = rewardsCache?.data ?? stakingRewards;
+    const epochsFetchedSet = new Set(rewardsCache?.epochsFetched ?? []);
 
     setLoadingRewards(true);
     setError(null);
@@ -118,31 +142,27 @@ export function useStaking(address: string | null) {
       try { currentEpoch = await fetchCurrentEpoch(); } catch { /* use fallback */ }
       const to = currentEpoch - 1;
 
-      // Per-account: neededFrom = max(stored epoch for this account) + 1
-      const groups = new Map<number, string[]>(); // neededFrom → pubkeys
-      for (const acct of accounts) {
-        const acctEpochs = existing
-          .filter(r => r.stakeAccount === acct.pubkey)
-          .map(r => r.epoch);
-        const neededFrom = acctEpochs.length > 0
-          ? Math.max(...acctEpochs) + 1
-          : acct.activationEpoch;
-        if (neededFrom > to) continue; // already up to date
-        const group = groups.get(neededFrom) ?? [];
-        group.push(acct.pubkey);
-        groups.set(neededFrom, group);
+      const pubkeys = accounts.map(a => a.pubkey);
+      // Start from the epoch after the highest already-fetched epoch
+      const maxFetched = epochsFetchedSet.size > 0 ? Math.max(...epochsFetchedSet) : -1;
+      const from = maxFetched >= 0 ? maxFetched + 1 : Math.min(...accounts.map(a => a.activationEpoch));
+
+      const epochsToFetch: number[] = [];
+      for (let e = from; e <= to; e++) {
+        if (!epochsFetchedSet.has(e)) epochsToFetch.push(e);
       }
 
-      if (groups.size === 0) return;
+      if (epochsToFetch.length === 0) return;
 
       const allNew: StakingReward[] = [];
-      for (const [from, pubkeys] of groups) {
-        const rewards = await getInflationRewards(pubkeys, { from, to });
+      for (const { from: rf, to: rt } of toRanges(epochsToFetch)) {
+        const rewards = await getInflationRewards(pubkeys, { from: rf, to: rt });
         allNew.push(...rewards);
       }
 
       const merged = mergeRewards(existing, allNew);
-      saveStakingRewards(address, merged);
+      const newEpochsFetched = [...epochsFetchedSet, ...epochsToFetch];
+      saveStakingRewards(address, merged, newEpochsFetched);
       setStakingRewards(merged);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -160,7 +180,9 @@ export function useStaking(address: string | null) {
     const accounts = (await loadStakeAccounts(address))?.data ?? stakeAccounts;
     if (accounts.length === 0) return EMPTY;
 
-    const existing = (await loadStakingRewards(address))?.data ?? stakingRewards;
+    const rewardsCache = await loadStakingRewards(address);
+    const existing = rewardsCache?.data ?? stakingRewards;
+    const epochsFetchedSet = new Set(rewardsCache?.epochsFetched ?? []);
 
     setLoadingRewards(true);
     setError(null);
@@ -173,7 +195,7 @@ export function useStaking(address: string | null) {
       for (const acct of accounts) storedByAccount.set(acct.pubkey, new Set());
       for (const r of existing) storedByAccount.get(r.stakeAccount)?.add(r.epoch);
 
-      // Loop every expected epoch for every account and collect missing ones
+      // Loop every expected (epoch, account) pair — skip epochs already in epochsFetched
       let epochsChecked = 0;
       let missingEpochs = 0;
       const missingEpochSet = new Set<number>();
@@ -182,7 +204,7 @@ export function useStaking(address: string | null) {
         const stored = storedByAccount.get(acct.pubkey)!;
         for (let e = acct.activationEpoch; e < currentEpoch; e++) {
           epochsChecked++;
-          if (!stored.has(e)) {
+          if (!stored.has(e) && !epochsFetchedSet.has(e)) {
             missingEpochs++;
             missingEpochSet.add(e);
           }
@@ -193,31 +215,19 @@ export function useStaking(address: string | null) {
         return { accountsChecked: accounts.length, epochsChecked, missingEpochs: 0, newRewards: 0 };
       }
 
-      // Group consecutive missing epochs into ranges to minimise RPC calls
-      const sortedMissing = [...missingEpochSet].sort((a, b) => a - b);
-      const ranges: Array<{ from: number; to: number }> = [];
-      let rangeStart = sortedMissing[0];
-      let prev = sortedMissing[0];
-      for (let i = 1; i < sortedMissing.length; i++) {
-        if (sortedMissing[i] !== prev + 1) {
-          ranges.push({ from: rangeStart, to: prev });
-          rangeStart = sortedMissing[i];
-        }
-        prev = sortedMissing[i];
-      }
-      ranges.push({ from: rangeStart, to: prev });
-
       // Fetch all ranges for all pubkeys
       const pubkeys = accounts.map(a => a.pubkey);
       const allNew: StakingReward[] = [];
-      for (const { from, to } of ranges) {
+      for (const { from, to } of toRanges([...missingEpochSet].sort((a, b) => a - b))) {
         const rewards = await getInflationRewards(pubkeys, { from, to });
         allNew.push(...rewards);
       }
 
       const merged = mergeRewards(existing, allNew);
       const newRewards = merged.length - existing.length;
-      saveStakingRewards(address, merged);
+      // Mark all checked-but-missing epochs as fetched (includes zero-reward epochs)
+      const newEpochsFetched = [...epochsFetchedSet, ...[...missingEpochSet].filter(e => !epochsFetchedSet.has(e))];
+      saveStakingRewards(address, merged, newEpochsFetched);
       setStakingRewards(merged);
 
       return { accountsChecked: accounts.length, epochsChecked, missingEpochs, newRewards };
@@ -253,4 +263,20 @@ function mergeRewards(existing: StakingReward[], incoming: StakingReward[]): Sta
   for (const r of existing) map.set(`${r.epoch}:${r.stakeAccount}`, r);
   for (const r of incoming) map.set(`${r.epoch}:${r.stakeAccount}`, r);
   return Array.from(map.values());
+}
+
+function toRanges(sortedEpochs: number[]): Array<{ from: number; to: number }> {
+  if (sortedEpochs.length === 0) return [];
+  const ranges: Array<{ from: number; to: number }> = [];
+  let start = sortedEpochs[0];
+  let prev = sortedEpochs[0];
+  for (let i = 1; i < sortedEpochs.length; i++) {
+    if (sortedEpochs[i] !== prev + 1) {
+      ranges.push({ from: start, to: prev });
+      start = sortedEpochs[i];
+    }
+    prev = sortedEpochs[i];
+  }
+  ranges.push({ from: start, to: prev });
+  return ranges;
 }

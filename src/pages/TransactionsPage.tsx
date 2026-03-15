@@ -3,6 +3,7 @@ import { RefreshCw, ChevronDown, Filter, Trash2, ChevronsDown, X } from 'lucide-
 import { format } from 'date-fns';
 import { useApp } from '../context/AppContext';
 import { useTransactions } from '../hooks/useTransactions';
+import { useBitvavoTransactions } from '../hooks/useBitvavoTransactions';
 import { useStaking } from '../hooks/useStaking';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
@@ -17,6 +18,8 @@ import type { TokenMeta } from '../lib/helius';
 import { isSolMint, stakingRewardsToTransactions } from '../lib/taxCategorizer';
 import { summarizeTx } from '../lib/txSummary';
 import { clearStakingData, loadGroupMemberships } from '../lib/storage';
+import { isBitvavoWallet } from '../lib/walletType';
+import { BITVAVO_TOKEN_META } from '../lib/bitvavoParser';
 import type { TaxCategory } from '../types/transaction';
 import type { GroupMemberships } from '../types/groups';
 
@@ -27,12 +30,18 @@ const ALL_CATEGORIES: TaxCategory[] = [
 ];
 
 export function TransactionsPage() {
-  const { activeAddress, settings } = useApp();
+  const { wallets, activeAddress, settings } = useApp();
+  const wallet = wallets.find(w => w.address === activeAddress);
+  const isBitvavo = wallet?.type === 'bitvavo';
+
+  const solanaTransactions = useTransactions(isBitvavo ? null : activeAddress);
+  const bitvavoTransactions = useBitvavoTransactions(isBitvavo ? activeAddress : null);
   const {
     transactions, loading, loadingAll, error, hasMore, isComplete,
     fetchNew, fetchOlder, fetchAllHistory, cancelLoadAll, loadFromStorage, resetAndReload,
-  } = useTransactions(activeAddress);
-  const { stakingRewards, refresh } = useStaking(activeAddress);
+  } = isBitvavo ? bitvavoTransactions : solanaTransactions;
+
+  const { stakingRewards, refresh } = useStaking(isBitvavo ? null : activeAddress);
   const { toast, showToast, dismissToast } = useToast();
 
   const PAGE_SIZE = 50;
@@ -64,7 +73,7 @@ export function TransactionsPage() {
   }, [activeAddress]);
 
   useEffect(() => {
-    if (!settings.apiKey || transactions.length === 0) return;
+    if (isBitvavo || !settings.helius || transactions.length === 0) return;
     const mints = [...new Set(
       transactions.flatMap(tx => tx.balanceChanges.map(bc => bc.mint).filter(m => !isSolMint(m)))
     )];
@@ -76,9 +85,25 @@ export function TransactionsPage() {
       }
       setTokenMetas(map);
     });
-  }, [transactions, settings.apiKey]);
+  }, [transactions, settings.helius, isBitvavo]);
 
-  const rewardTxns = useMemo(() => stakingRewardsToTransactions(stakingRewards), [stakingRewards]);
+  // Build token meta from Bitvavo static data
+  useEffect(() => {
+    if (!isBitvavo || transactions.length === 0) return;
+    const map = new Map<string, TokenMeta>();
+    const symbols = new Set(transactions.flatMap(tx => tx.balanceChanges.map(bc => bc.mint)));
+    for (const symbol of symbols) {
+      const meta = BITVAVO_TOKEN_META[symbol];
+      map.set(symbol, {
+        symbol,
+        name: meta?.name ?? symbol,
+        logoUri: null,
+      });
+    }
+    setTokenMetas(map);
+  }, [transactions, isBitvavo]);
+
+  const rewardTxns = useMemo(() => isBitvavo ? [] : stakingRewardsToTransactions(stakingRewards), [stakingRewards, isBitvavo]);
 
   const allTxns = useMemo(() => {
     const merged = [...transactions, ...rewardTxns];
@@ -94,6 +119,9 @@ export function TransactionsPage() {
     if (filterToken) {
       const q = filterToken.toLowerCase();
       const match = tx.balanceChanges.some(bc => {
+        if (isBitvavo) {
+          return bc.mint.toLowerCase().includes(q);
+        }
         if (isSolMint(bc.mint)) return 'sol'.includes(q) || 'solana'.includes(q);
         const meta = tokenMetas.get(bc.mint);
         return (meta?.symbol?.toLowerCase().includes(q) ?? false)
@@ -103,14 +131,14 @@ export function TransactionsPage() {
       if (!match) return false;
     }
     return true;
-  }), [allTxns, hideDust, filterCategory, filterDateFrom, filterDateTo, filterToken, tokenMetas]);
+  }), [allTxns, hideDust, filterCategory, filterDateFrom, filterDateTo, filterToken, tokenMetas, isBitvavo]);
 
   if (!activeAddress) {
     return <div className="text-gray-500 text-center py-20">Select a wallet first</div>;
   }
 
-  if (!settings.apiKey) {
-    return <div className="text-gray-500 text-center py-20">Add your Helius API key in Settings</div>;
+  if (!isBitvavo && !settings.helius) {
+    return <div className="text-gray-500 text-center py-20">Set HELIUS_API_KEY in .env to get started</div>;
   }
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -146,19 +174,19 @@ export function TransactionsPage() {
             </button>
           )}
           <button
-            onClick={fetchNew}
+            onClick={isBitvavo ? (bitvavoTransactions as ReturnType<typeof useBitvavoTransactions>).refresh : fetchNew}
             disabled={loading || loadingAll}
             className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg px-3 py-2 text-sm transition-colors disabled:opacity-50"
           >
             {loading ? <LoadingSpinner size={14} /> : <RefreshCw size={14} />}
-            Sync New
+            {isBitvavo ? 'Refresh' : 'Sync New'}
           </button>
           <button
             onClick={() => {
-            if (confirm('Clear all cached transactions and staking data, then reload from scratch?')) {
-              if (activeAddress) clearStakingData(activeAddress);
+            if (confirm(`Clear all cached transactions${isBitvavo ? '' : ' and staking data'}, then reload from scratch?`)) {
+              if (!isBitvavo && activeAddress) clearStakingData(activeAddress);
               resetAndReload();
-              refresh(true);
+              if (!isBitvavo) refresh(true);
             }
           }}
             disabled={loading || loadingAll}
@@ -216,15 +244,17 @@ export function TransactionsPage() {
             />
           </div>
           <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={walletOnly}
-                onChange={e => setWalletOnly(e.target.checked)}
-                className="w-4 h-4"
-              />
-              <span className="text-xs text-gray-300">Wallet changes only</span>
-            </label>
+            {!isBitvavo && (
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={walletOnly}
+                  onChange={e => setWalletOnly(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <span className="text-xs text-gray-300">Wallet changes only</span>
+              </label>
+            )}
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -253,7 +283,7 @@ export function TransactionsPage() {
         <div className="text-center py-8">
           <p className="text-gray-500 mb-3">No transactions loaded yet</p>
           <button
-            onClick={fetchOlder}
+            onClick={isBitvavo ? (bitvavoTransactions as ReturnType<typeof useBitvavoTransactions>).refresh : fetchOlder}
             className="bg-purple-600 hover:bg-purple-700 text-white rounded-lg px-4 py-2 text-sm"
           >
             Load Transactions
@@ -291,10 +321,10 @@ export function TransactionsPage() {
                     <input
                       type="checkbox"
                       className="w-4 h-4"
-                      disabled={paginated.every(tx => tx.slot === 0)}
-                      checked={paginated.filter(tx => tx.slot !== 0).length > 0 && paginated.filter(tx => tx.slot !== 0).every(tx => selectedSigs.has(tx.signature))}
+                      disabled={paginated.every(tx => tx.slot === 0 && !isBitvavo)}
+                      checked={paginated.filter(tx => isBitvavo || tx.slot !== 0).length > 0 && paginated.filter(tx => isBitvavo || tx.slot !== 0).every(tx => selectedSigs.has(tx.signature))}
                       onChange={e => {
-                        const eligible = paginated.filter(tx => tx.slot !== 0).map(tx => tx.signature);
+                        const eligible = paginated.filter(tx => isBitvavo || tx.slot !== 0).map(tx => tx.signature);
                         setSelectedSigs(prev => {
                           const next = new Set(prev);
                           if (e.target.checked) eligible.forEach(s => next.add(s));
@@ -307,7 +337,7 @@ export function TransactionsPage() {
                   <th className="text-left px-4 py-2">Date</th>
                   <th className="text-left px-4 py-2">Category</th>
                   <th className="text-left px-4 py-2">Summary</th>
-                  <th className="text-right px-4 py-2">Fee (SOL)</th>
+                  {!isBitvavo && <th className="text-right px-4 py-2">Fee (SOL)</th>}
                   <th className="px-4 py-2"></th>
                 </tr>
               </thead>
@@ -322,7 +352,7 @@ export function TransactionsPage() {
                         <input
                           type="checkbox"
                           className="w-4 h-4"
-                          disabled={tx.slot === 0}
+                          disabled={!isBitvavo && tx.slot === 0}
                           checked={selectedSigs.has(tx.signature)}
                           onChange={e => {
                             setSelectedSigs(prev => {
@@ -343,12 +373,14 @@ export function TransactionsPage() {
                         {tx.err && <span className="ml-1 text-xs text-red-500">Failed</span>}
                       </td>
                       <td className="px-4 py-3 text-gray-300 max-w-xs truncate text-xs font-mono">
-                        {summarizeTx(tx, tokenMetas, activeAddress, walletOnly)}
+                        {isBitvavo ? tx.description : summarizeTx(tx, tokenMetas, activeAddress, walletOnly)}
                         <GroupBadges memberships={memberships[tx.signature] ?? []} />
                       </td>
-                      <td className="px-4 py-3 text-right text-gray-500 font-mono text-xs">
-                        {tx.slot > 0 ? (tx.fee / 1e9).toFixed(6) : '—'}
-                      </td>
+                      {!isBitvavo && (
+                        <td className="px-4 py-3 text-right text-gray-500 font-mono text-xs">
+                          {tx.slot > 0 ? (tx.fee / 1e9).toFixed(6) : '—'}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-right">
                         <ChevronDown
                           size={14}
@@ -358,7 +390,7 @@ export function TransactionsPage() {
                     </tr>
                     {expandedSig === tx.signature && (
                       <tr>
-                        <td colSpan={6} className="p-0">
+                        <td colSpan={isBitvavo ? 5 : 6} className="p-0">
                           <TxDetail tx={tx} tokenMetas={tokenMetas} walletAddress={activeAddress} walletOnly={walletOnly} />
                         </td>
                       </tr>
@@ -409,8 +441,8 @@ export function TransactionsPage() {
             </div>
           )}
 
-          {/* Load more */}
-          {hasMore && (
+          {/* Load more — Solana only */}
+          {!isBitvavo && hasMore && (
             <div className="p-4 border-t border-gray-800 text-center">
               <button
                 onClick={fetchOlder}

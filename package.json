@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"vite\"",
+    "dev:ui": "vite",
     "server": "tsx watch server/index.ts",
     "build": "tsc -b && vite build",
     "test": "vitest run",

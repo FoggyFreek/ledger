@@ -6,7 +6,7 @@ user-invocable: false
 
 # Backend API Knowledge
 
-This skill provides context for working with the Hono REST API backend and its Helius proxy layer. See [routes.md](routes.md) for the full endpoint reference and [helius-proxy.md](helius-proxy.md) for how Helius API calls are proxied through the backend.
+This skill provides context for working with the Hono REST API backend and its Helius proxy layer. See [routes.md](routes.md) for the full endpoint reference, [helius-proxy.md](helius-proxy.md) for how Helius API calls are proxied through the backend, and [postgres-transactions.md](postgres-transactions.md) for the postgres.js query reference (transactions).
 
 ## Quick Reference
 

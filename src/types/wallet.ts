@@ -1,6 +1,9 @@
+export type WalletType = 'solana' | 'bitvavo';
+
 export interface WalletEntry {
   address: string;
   label: string;
+  type: WalletType;
   addedAt: number;
   lastRefreshed: number | null;
 }

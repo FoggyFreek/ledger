@@ -36,7 +36,7 @@ export function interpretTransaction(balanceChanges: BalanceChange[]): Interpret
     }
     // Small non-rent SOL values become a 'Fee' rent item instead of a balance change
     // Skip this heuristic for staking rewards — their small amounts are genuine income.
-    if (!isRent && !bc.isStakingReward && absAmt > 0 && absAmt < 0.005) {
+    if (!isRent && !bc.isStakingReward && bc.amount < 0 && absAmt > 0 && absAmt < 0.005) {
       smallFeeSet.add(bc);
       rentItems.push({ amount: bc.amount, label: 'Fee', refundable: false });
     }

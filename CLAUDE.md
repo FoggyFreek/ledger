@@ -21,6 +21,7 @@ npm test          # Run Vitest test suite
 - **`server/index.ts`** — Hono app served by `@hono/node-server` on port 3001 (env `SERVER_PORT`). Mounts all route modules under `/api/v1`.
 - **`server/db.ts`** — `postgres` client + `initDb()` which creates all tables on startup.
 - **`server/routes/`** — one file per resource: `settings`, `wallets`, `holdings`, `transactions`, `snapshots`, `staking`, `groups`, `helius` (API proxy).
+- **Transaction convention**: build all query objects *outside* `sql.begin()`, keep the callback logic-free (just return a flat array of pre-built queries). Use `sql\`SELECT 1\`` as a no-op for conditional inserts. See `.claude/skills/backend-api/postgres-transactions.md` for examples.
 
 #### PostgreSQL schema
 

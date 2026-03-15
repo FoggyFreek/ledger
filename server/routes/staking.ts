@@ -32,26 +32,32 @@ app.put('/wallets/:addr/stake-accounts', async (c) => {
     fetchedAt: number;
   }>();
 
-  await sql.begin(async sql => {
-    await sql`DELETE FROM stake_accounts WHERE wallet_address = ${addr}`;
-    if (data.length > 0) {
-      const rows = data.map(a => ({
-        wallet_address: addr,
-        pubkey: a.pubkey,
-        lamports: a.lamports,
-        voter: a.voter,
-        activation_epoch: a.activationEpoch,
-        deactivation_epoch: a.deactivationEpoch ?? null,
-        status: a.status,
-      }));
-      await sql`INSERT INTO stake_accounts ${sql(rows)}`;
-    }
-    await sql`
-      INSERT INTO stake_accounts_meta (wallet_address, fetched_at)
-      VALUES (${addr}, ${fetchedAt})
-      ON CONFLICT (wallet_address) DO UPDATE SET fetched_at = EXCLUDED.fetched_at
-    `;
-  });
+  const deleteQuery = sql`DELETE FROM stake_accounts WHERE wallet_address = ${addr}`;
+  const rows = data.map(a => ({
+    wallet_address: addr,
+    pubkey: a.pubkey,
+    lamports: a.lamports,
+    voter: a.voter,
+    activation_epoch: a.activationEpoch,
+    deactivation_epoch: a.deactivationEpoch ?? null,
+    status: a.status,
+  }));
+  const insertQuery = data.length > 0
+    ? sql`INSERT INTO stake_accounts ${sql(rows)}
+          ON CONFLICT (wallet_address, pubkey) DO UPDATE SET
+            lamports = EXCLUDED.lamports,
+            voter = EXCLUDED.voter,
+            activation_epoch = EXCLUDED.activation_epoch,
+            deactivation_epoch = EXCLUDED.deactivation_epoch,
+            status = EXCLUDED.status`
+    : sql`SELECT 1`;
+  const metaQuery = sql`
+    INSERT INTO stake_accounts_meta (wallet_address, fetched_at)
+    VALUES (${addr}, ${fetchedAt})
+    ON CONFLICT (wallet_address) DO UPDATE SET fetched_at = EXCLUDED.fetched_at
+  `;
+
+  await sql.begin(() => [deleteQuery, insertQuery, metaQuery]);
 
   return c.json({ ok: true });
 });
@@ -59,13 +65,15 @@ app.put('/wallets/:addr/stake-accounts', async (c) => {
 // Staking rewards
 app.get('/wallets/:addr/staking-rewards', async (c) => {
   const addr = c.req.param('addr');
-  const [rows, metaRows] = await Promise.all([
+  const [rows, metaRows, rewardsMeta] = await Promise.all([
     sql`SELECT epoch, stake_account, amount, post_balance, commission, estimated_timestamp
         FROM staking_rewards WHERE wallet_address = ${addr} ORDER BY epoch DESC`,
     sql`SELECT 1 FROM stake_accounts_meta WHERE wallet_address = ${addr}`,
+    sql`SELECT epochs_fetched FROM staking_rewards_meta WHERE wallet_address = ${addr}`,
   ]);
   if (metaRows.length === 0) return c.json(null);
   return c.json({
+    epochsFetched: (rewardsMeta[0]?.epochs_fetched as number[] | undefined) ?? [],
     data: rows.map(r => ({
       epoch: r.epoch as number,
       stakeAccount: r.stake_account as string,
@@ -79,25 +87,31 @@ app.get('/wallets/:addr/staking-rewards', async (c) => {
 
 app.put('/wallets/:addr/staking-rewards', async (c) => {
   const addr = c.req.param('addr');
-  const { data } = await c.req.json<{
+  const { data, epochsFetched } = await c.req.json<{
     data: { epoch: number; stakeAccount: string; amount: number; postBalance: number; commission: number | null; estimatedTimestamp: number }[];
+    epochsFetched: number[];
   }>();
 
-  await sql.begin(async sql => {
-    await sql`DELETE FROM staking_rewards WHERE wallet_address = ${addr}`;
-    if (data.length > 0) {
-      const rows = data.map(r => ({
-        wallet_address: addr,
-        epoch: r.epoch,
-        stake_account: r.stakeAccount,
-        amount: r.amount,
-        post_balance: r.postBalance,
-        commission: r.commission ?? null,
-        estimated_timestamp: r.estimatedTimestamp,
-      }));
-      await sql`INSERT INTO staking_rewards ${sql(rows)}`;
-    }
-  });
+  const rows = data.map(r => ({
+    wallet_address: addr,
+    epoch: r.epoch,
+    stake_account: r.stakeAccount,
+    amount: r.amount,
+    post_balance: r.postBalance,
+    commission: r.commission ?? null,
+    estimated_timestamp: r.estimatedTimestamp,
+  }));
+  // Rewards are immutable — ON CONFLICT DO NOTHING (never overwrite)
+  const insertQuery = data.length > 0
+    ? sql`INSERT INTO staking_rewards ${sql(rows)} ON CONFLICT DO NOTHING`
+    : sql`SELECT 1`;
+  const metaQuery = sql`
+    INSERT INTO staking_rewards_meta (wallet_address, epochs_fetched)
+    VALUES (${addr}, ${epochsFetched})
+    ON CONFLICT (wallet_address) DO UPDATE SET epochs_fetched = EXCLUDED.epochs_fetched
+  `;
+
+  await sql.begin(() => [insertQuery, metaQuery]);
 
   return c.json({ ok: true });
 });
@@ -129,24 +143,28 @@ app.put('/wallets/:addr/seeker-stake', async (c) => {
     fetchedAt: number;
   }>();
 
-  await sql.begin(async sql => {
-    await sql`DELETE FROM seeker_stake_accounts WHERE wallet_address = ${addr}`;
-    if (data.length > 0) {
-      const rows = data.map(a => ({
-        wallet_address: addr,
-        pubkey: a.pubkey,
-        lamports: a.lamports,
-        staked_raw: a.stakedRaw,
-        unstaking_amount: a.unstakingAmount,
-      }));
-      await sql`INSERT INTO seeker_stake_accounts ${sql(rows)}`;
-    }
-    await sql`
-      INSERT INTO seeker_stake_meta (wallet_address, fetched_at)
-      VALUES (${addr}, ${fetchedAt})
-      ON CONFLICT (wallet_address) DO UPDATE SET fetched_at = EXCLUDED.fetched_at
-    `;
-  });
+  const deleteQuery = sql`DELETE FROM seeker_stake_accounts WHERE wallet_address = ${addr}`;
+  const rows = data.map(a => ({
+    wallet_address: addr,
+    pubkey: a.pubkey,
+    lamports: a.lamports,
+    staked_raw: a.stakedRaw,
+    unstaking_amount: a.unstakingAmount,
+  }));
+  const insertQuery = data.length > 0
+    ? sql`INSERT INTO seeker_stake_accounts ${sql(rows)}
+          ON CONFLICT (wallet_address, pubkey) DO UPDATE SET
+            lamports = EXCLUDED.lamports,
+            staked_raw = EXCLUDED.staked_raw,
+            unstaking_amount = EXCLUDED.unstaking_amount`
+    : sql`SELECT 1`;
+  const metaQuery = sql`
+    INSERT INTO seeker_stake_meta (wallet_address, fetched_at)
+    VALUES (${addr}, ${fetchedAt})
+    ON CONFLICT (wallet_address) DO UPDATE SET fetched_at = EXCLUDED.fetched_at
+  `;
+
+  await sql.begin(() => [deleteQuery, insertQuery, metaQuery]);
 
   return c.json({ ok: true });
 });
@@ -157,6 +175,7 @@ app.delete('/wallets/:addr/staking', async (c) => {
   await Promise.all([
     sql`DELETE FROM stake_accounts WHERE wallet_address = ${addr}`,
     sql`DELETE FROM staking_rewards WHERE wallet_address = ${addr}`,
+    sql`DELETE FROM staking_rewards_meta WHERE wallet_address = ${addr}`,
     sql`DELETE FROM seeker_stake_accounts WHERE wallet_address = ${addr}`,
     // meta tables cascade-delete via FK, but be explicit
     sql`DELETE FROM stake_accounts_meta WHERE wallet_address = ${addr}`,

@@ -1,17 +1,16 @@
 import { Hono } from 'hono';
-import sql from '../db.js';
 
 const app = new Hono();
 
-async function getApiKey(): Promise<string> {
-  const [row] = await sql`SELECT api_key FROM settings LIMIT 1`;
-  if (!row?.api_key) throw new Error('Helius API key not configured');
-  return row.api_key;
+function getApiKey(): string {
+  const key = process.env.HELIUS_API_KEY;
+  if (!key) throw new Error('HELIUS_API_KEY is not set in environment variables.');
+  return key;
 }
 
 // Proxy JSON-RPC requests (RPC + DAS API)
 app.post('/helius/rpc', async (c) => {
-  const apiKey = await getApiKey();
+  const apiKey = getApiKey();
   const body = await c.req.text();
   const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
     method: 'POST',
@@ -26,7 +25,7 @@ app.post('/helius/rpc', async (c) => {
 
 // Proxy Enhanced Transaction API
 app.post('/helius/enhanced-transactions', async (c) => {
-  const apiKey = await getApiKey();
+  const apiKey = getApiKey();
   const { address, params } = await c.req.json<{ address: string; params: Record<string, string> }>();
   const qs = new URLSearchParams(params);
   const url = `https://api-mainnet.helius-rpc.com/v0/addresses/${encodeURIComponent(address)}/transactions?api-key=${apiKey}&${qs}`;

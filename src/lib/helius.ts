@@ -330,8 +330,17 @@ async function getEpochSchedule(): Promise<EpochSchedule> {
   return s;
 }
 
+const EPOCH_INFO_CACHE_TTL_MS = 5 * 60 * 1000;
+let _epochInfo: EpochInfo | null = null;
+let _epochInfoFetchedAt = 0;
+
 async function getEpochInfo(): Promise<EpochInfo> {
-  return rpc<EpochInfo>('getEpochInfo', [{ commitment: 'finalized' }]);
+  if (_epochInfo && Date.now() - _epochInfoFetchedAt < EPOCH_INFO_CACHE_TTL_MS) {
+    return _epochInfo;
+  }
+  _epochInfo = await rpc<EpochInfo>('getEpochInfo', [{ commitment: 'finalized' }]);
+  _epochInfoFetchedAt = Date.now();
+  return _epochInfo;
 }
 
 export async function fetchCurrentEpoch(): Promise<number> {

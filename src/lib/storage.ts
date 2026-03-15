@@ -8,8 +8,9 @@ function withInterpretedFlow(tx: ParsedTransaction): ParsedTransaction {
 }
 
 export interface Settings {
-  apiKey: string;
-  rpcUrl: string;
+  helius: boolean;
+  coingecko: boolean;
+  bitvavo: boolean;
 }
 
 export interface StoredTransactions {
@@ -93,11 +94,7 @@ export async function saveWallets(wallets: WalletEntry[]): Promise<void> {
 
 // Settings
 export async function loadSettings(): Promise<Settings> {
-  return (await apiFetch<Settings>('/api/v1/settings')) ?? { apiKey: '', rpcUrl: '' };
-}
-
-export async function saveSettings(settings: Settings): Promise<void> {
-  await apiPut('/api/v1/settings', settings);
+  return (await apiFetch<Settings>('/api/v1/settings')) ?? { helius: false, coingecko: false, bitvavo: false };
 }
 
 // Holdings cache
@@ -148,12 +145,12 @@ export async function saveStakeAccounts(address: string, data: StakeAccount[]): 
   await apiPut(`/api/v1/wallets/${address}/stake-accounts`, { data, fetchedAt: Date.now() });
 }
 
-export async function loadStakingRewards(address: string): Promise<{ data: StakingReward[] } | null> {
+export async function loadStakingRewards(address: string): Promise<{ data: StakingReward[]; epochsFetched: number[] } | null> {
   return apiFetch(`/api/v1/wallets/${address}/staking-rewards`);
 }
 
-export async function saveStakingRewards(address: string, rewards: StakingReward[]): Promise<void> {
-  await apiPut(`/api/v1/wallets/${address}/staking-rewards`, { data: rewards });
+export async function saveStakingRewards(address: string, rewards: StakingReward[], epochsFetched: number[]): Promise<void> {
+  await apiPut(`/api/v1/wallets/${address}/staking-rewards`, { data: rewards, epochsFetched });
 }
 
 export async function clearStakingData(address: string): Promise<void> {

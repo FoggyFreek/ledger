@@ -6,6 +6,7 @@ import { SettingsModal } from '../settings/SettingsModal';
 import { fetchCurrentEpoch } from '../../lib/helius';
 import { loadHoldings, loadStakeAccounts, loadSeekerStakeAccounts } from '../../lib/storage';
 import { SKR_RAW_TO_UI } from '../../lib/helius';
+import { isBitvavoWallet } from '../../lib/walletType';
 
 
 interface Props {
@@ -21,18 +22,19 @@ export function Sidebar({ activePage, onPageChange }: Props) {
   const [walletTotals, setWalletTotals] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    if (!settings.apiKey) return;
+    if (!settings.helius) return;
     fetchCurrentEpoch().then(setCurrentEpoch).catch(() => {});
-  }, [settings.apiKey]);
+  }, [settings.helius]);
 
   useEffect(() => {
     const totals: Record<string, number> = {};
     Promise.all(
       wallets.map(async w => {
+        const isBitvavo = isBitvavoWallet(w.address);
         const [h, stakeResult, seekerResult] = await Promise.all([
           loadHoldings(w.address).catch(() => null),
-          loadStakeAccounts(w.address).catch(() => null),
-          loadSeekerStakeAccounts(w.address).catch(() => null),
+          isBitvavo ? Promise.resolve(null) : loadStakeAccounts(w.address).catch(() => null),
+          isBitvavo ? Promise.resolve(null) : loadSeekerStakeAccounts(w.address).catch(() => null),
         ]);
         if (!h) return;
         const solUsd = h.solPrice != null ? h.solBalance * h.solPrice : 0;
@@ -87,45 +89,53 @@ export function Sidebar({ activePage, onPageChange }: Props) {
             <Plus size={16} />
           </button>
         </div>
-        <div className="space-y-1 max-h-48 overflow-y-auto">
+        <div className="space-y-1 overflow-y-auto">
           {wallets.length === 0 && (
             <p className="text-xs text-gray-600 py-2">No wallets added yet</p>
           )}
-          {wallets.map(w => (
-            <div
-              key={w.address}
-              className={`group flex items-center justify-between rounded-lg px-2 py-1.5 cursor-pointer transition-colors ${
-                activeAddress === w.address
-                  ? 'bg-purple-900/50 text-white'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-              }`}
-              onClick={() => setActiveAddress(w.address)}
-            >
-              <div className="flex items-center gap-1.5 min-w-0">
-              <Wallet size={13} className="shrink-0 text-white/70" />
-              <div className="min-w-0">
-                <div className="flex items-baseline gap-1">
-                  <p className="text-xs font-medium truncate">{w.label}</p>
-                  {walletTotals[w.address] != null && (
-                    <span className="text-xs text-gray-500 shrink-0">
-                      (${walletTotals[w.address].toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-gray-600 font-mono">
-                  {w.address.slice(0, 6)}…{w.address.slice(-4)}
-                </p>
-              </div>
-              </div>
-              <button
-                onClick={e => { e.stopPropagation(); removeWallet(w.address); }}
-                className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-all ml-1 shrink-0"
-                title="Remove wallet"
+          {wallets.map(w => {
+            const isBitvavo = isBitvavoWallet(w.address);
+            return (
+              <div
+                key={w.address}
+                className={`group flex items-center justify-between rounded-lg px-2 py-1.5 cursor-pointer transition-colors ${
+                  activeAddress === w.address
+                    ? 'bg-purple-900/50 text-white'
+                    : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                }`}
+                onClick={() => setActiveAddress(w.address)}
               >
-                <Trash2 size={12} />
-              </button>
-            </div>
-          ))}
+                <div className="flex items-center gap-1.5 min-w-0">
+                <Wallet size={13} className="shrink-0 text-white/70" />
+                <div className="min-w-0">
+                  <div className="flex items-baseline gap-1">
+                    <p className="text-xs font-medium truncate">{w.label}</p>
+                    {isBitvavo && (
+                      <span className="text-[10px] px-1 py-0.5 rounded bg-blue-900 text-blue-300 shrink-0">Exchange</span>
+                    )}
+                    {walletTotals[w.address] != null && (
+                      <span className="text-xs text-gray-500 shrink-0">
+                        (${walletTotals[w.address].toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-600 font-mono">
+                    {isBitvavo ? 'Bitvavo' : `${w.address.slice(0, 6)}…${w.address.slice(-4)}`}
+                  </p>
+                </div>
+                </div>
+                {!isBitvavo && (
+                  <button
+                    onClick={e => { e.stopPropagation(); removeWallet(w.address); }}
+                    className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-all ml-1 shrink-0"
+                    title="Remove wallet"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
         {Object.keys(walletTotals).length > 0 && (
           <p className="text-xs text-gray-500 text-right mt-1 px-1">

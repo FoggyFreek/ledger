@@ -11,6 +11,8 @@ import snapshotsRoutes from './routes/snapshots.js';
 import stakingRoutes from './routes/staking.js';
 import groupsRoutes from './routes/groups.js';
 import heliusRoutes from './routes/helius.js';
+import bitvavoRoutes from './routes/bitvavo.js';
+import coingeckoRoutes from './routes/coingecko.js';
 
 const app = new Hono();
 
@@ -24,6 +26,8 @@ app.route('/api/v1', snapshotsRoutes);
 app.route('/api/v1', stakingRoutes);
 app.route('/api/v1', groupsRoutes);
 app.route('/api/v1', heliusRoutes);
+app.route('/api/v1', bitvavoRoutes);
+app.route('/api/v1', coingeckoRoutes);
 
 const port = parseInt(process.env.SERVER_PORT ?? '3001');
 

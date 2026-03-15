@@ -3,8 +3,10 @@ import type { WalletHoldings, WalletSnapshot, TokenHolding } from '../types/wall
 import { findSlotForTimestamp } from './slotFinder';
 import { getCachedTokenInfo, prefetchTokenMeta } from './helius';
 import { isSolMint } from './taxCategorizer';
-import { fetchHistoricalPrices } from './prices';
+import { fetchHistoricalPrices, fetchCoinGeckoHistoricalPricesForSymbols } from './prices';
 import { v4 as uuidv4 } from '../lib/uuid';
+import { isBitvavoWallet } from './walletType';
+import { BITVAVO_TOKEN_META } from './bitvavoParser';
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
@@ -16,13 +18,16 @@ export async function createSnapshot(
   currentHoldings: WalletHoldings | null
 ): Promise<WalletSnapshot> {
   const targetTs = Math.floor(targetDate.getTime() / 1000);
+  const isBitvavo = isBitvavoWallet(walletAddress);
 
-  // Find approximate slot
+  // Find approximate slot — skip for Bitvavo
   let slotApprox = 0;
-  try {
-    slotApprox = await findSlotForTimestamp(targetTs);
-  } catch {
-    // fallback: just use 0 — snapshot will still work via blockTime filter
+  if (!isBitvavo) {
+    try {
+      slotApprox = await findSlotForTimestamp(targetTs);
+    } catch {
+      // fallback: just use 0 — snapshot will still work via blockTime filter
+    }
   }
 
   // Filter transactions up to target date (successful only)
@@ -59,17 +64,19 @@ export async function createSnapshot(
     }
   }
 
-  // Prefetch metadata for mints not already in current holdings or registry
-  const unknownMints: string[] = [];
-  for (const [mint, rawBig] of tokenMap.entries()) {
-    if (rawBig <= BigInt(0)) continue;
-    const fromHoldings = currentHoldings?.tokens.find(t => t.mint === mint);
-    if (!fromHoldings && !getCachedTokenInfo(mint)) {
-      unknownMints.push(mint);
+  // Prefetch metadata for mints not already in current holdings or registry — skip for Bitvavo
+  if (!isBitvavo) {
+    const unknownMints: string[] = [];
+    for (const [mint, rawBig] of tokenMap.entries()) {
+      if (rawBig <= BigInt(0)) continue;
+      const fromHoldings = currentHoldings?.tokens.find(t => t.mint === mint);
+      if (!fromHoldings && !getCachedTokenInfo(mint)) {
+        unknownMints.push(mint);
+      }
     }
-  }
-  if (unknownMints.length > 0) {
-    await prefetchTokenMeta(unknownMints);
+    if (unknownMints.length > 0) {
+      await prefetchTokenMeta(unknownMints);
+    }
   }
 
   // Collect mints with positive balances for price fetching
@@ -79,7 +86,16 @@ export async function createSnapshot(
   }
 
   // Fetch historical prices for all tokens + SOL
-  const prices = await fetchHistoricalPrices([SOL_MINT, ...positiveMints], targetTs);
+  let prices = new Map<string, number>();
+  if (!isBitvavo) {
+    prices = await fetchHistoricalPrices([SOL_MINT, ...positiveMints], targetTs);
+  } else {
+    // Bitvavo tokens use ticker symbols as mint keys; resolve via CoinGecko
+    const cgPrices = await fetchCoinGeckoHistoricalPricesForSymbols([...positiveMints], targetTs);
+    for (const [sym, { usd }] of cgPrices) {
+      prices.set(sym, usd);
+    }
+  }
   const solPrice = prices.get(SOL_MINT) ?? null;
   const solBalance = Number(solLamports) / 1e9;
 
@@ -88,16 +104,17 @@ export async function createSnapshot(
     if (rawBig <= BigInt(0)) continue;
     const decimals = tokenDecimals.get(mint) ?? 0;
     const uiAmt = Number(rawBig) / Math.pow(10, decimals);
-    // Resolve metadata: prefer current holdings > token registry > fallback
+    // Resolve metadata: prefer current holdings > Bitvavo meta > token registry > fallback
     const fromHoldings = currentHoldings?.tokens.find(t => t.mint === mint);
-    const fromRegistry = getCachedTokenInfo(mint);
-    const symbol = fromHoldings?.symbol ?? fromRegistry?.symbol ?? '?';
-    const name = fromHoldings?.name ?? fromRegistry?.name ?? mint.slice(0, 8);
+    const fromBitvavo = isBitvavo ? BITVAVO_TOKEN_META[mint] : undefined;
+    const fromRegistry = !isBitvavo ? getCachedTokenInfo(mint) : undefined;
+    const resolvedSymbol = isBitvavo ? mint : (fromHoldings?.symbol ?? fromRegistry?.symbol ?? '?');
+    const name = fromHoldings?.name ?? fromBitvavo?.name ?? fromRegistry?.name ?? mint.slice(0, 8);
     const logoUri = fromHoldings?.logoUri ?? fromRegistry?.logoUri ?? null;
     const price = prices.get(mint);
     tokens.push({
       mint,
-      symbol,
+      symbol: resolvedSymbol,
       name,
       decimals,
       rawAmount: rawBig.toString(),

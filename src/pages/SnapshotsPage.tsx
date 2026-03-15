@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Camera, Trash2, Download, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+import { Camera, Trash2, Download, AlertTriangle, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { useApp } from '../context/AppContext';
 import { useHoldings } from '../hooks/useHoldings';
+import { useBitvavoHoldings } from '../hooks/useBitvavoHoldings';
 import { useTransactions } from '../hooks/useTransactions';
+import { useBitvavoTransactions } from '../hooks/useBitvavoTransactions';
 import { useSnapshots } from '../hooks/useSnapshots';
 import { useStaking } from '../hooks/useStaking';
 import { stakingRewardsToTransactions } from '../lib/taxCategorizer';
@@ -12,6 +14,8 @@ import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import type { WalletSnapshot } from '../types/wallet';
 import { objectsToCsv, downloadCsv } from '../lib/csv';
+import { fetchHistoricalPrices, fetchCoinGeckoHistoricalPricesForSymbols } from '../lib/prices';
+import type { WalletType } from '../types/wallet';
 
 function CreateSnapshotModal({
   onClose,
@@ -116,8 +120,54 @@ function resolveTokenMeta(t: { mint: string; symbol: string; name: string; logoU
   };
 }
 
-function SnapshotCard({ snapshot, onDelete }: { snapshot: WalletSnapshot; onDelete: () => void }) {
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+function SnapshotCard({
+  snapshot,
+  walletType,
+  onDelete,
+  onUpdate,
+}: {
+  snapshot: WalletSnapshot;
+  walletType: WalletType;
+  onDelete: () => void;
+  onUpdate: (updated: WalletSnapshot) => Promise<void>;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const [refreshing, setRefreshing] = useState<Set<string>>(new Set());
+
+  const refreshPrice = async (mint: string) => {
+    setRefreshing(prev => new Set(prev).add(mint));
+    try {
+      const targetTs = Math.floor(snapshot.targetDate / 1000);
+      let price: number | null = null;
+
+      if (walletType === 'bitvavo') {
+        const cgPrices = await fetchCoinGeckoHistoricalPricesForSymbols([mint], targetTs);
+        price = cgPrices.get(mint)?.usd ?? null;
+      } else {
+        const solPrices = await fetchHistoricalPrices([mint], targetTs);
+        price = solPrices.get(mint) ?? null;
+      }
+
+      if (price == null) return;
+
+      let updatedHoldings = snapshot.holdings;
+      if (mint === SOL_MINT) {
+        updatedHoldings = { ...snapshot.holdings, solPrice: price };
+      } else {
+        updatedHoldings = {
+          ...snapshot.holdings,
+          tokens: snapshot.holdings.tokens.map(t =>
+            t.mint === mint ? { ...t, usdValue: t.uiAmount * price } : t
+          ),
+        };
+      }
+      await onUpdate({ ...snapshot, holdings: updatedHoldings });
+    } finally {
+      setRefreshing(prev => { const s = new Set(prev); s.delete(mint); return s; });
+    }
+  };
 
   const exportCsv = () => {
     const rows = [
@@ -209,26 +259,39 @@ function SnapshotCard({ snapshot, onDelete }: { snapshot: WalletSnapshot; onDele
                 <th className="text-right px-4 py-2">Balance</th>
                 <th className="text-right px-4 py-2">Price</th>
                 <th className="text-right px-4 py-2">Value</th>
+                <th className="px-4 py-2" />
               </tr>
             </thead>
             <tbody>
-              <tr className="border-b border-gray-800/50">
-                <td className="px-4 py-2 text-white flex items-center gap-2">
-                  <img src="https://solscan.io/_next/static/media/solPriceLogo.76eeb122.png" alt="SOL" className="w-5 h-5 rounded-full" onError={e => (e.currentTarget.style.display = 'none')} />
-                  SOL
-                </td>
-                <td className="px-4 py-2 text-right font-mono text-white">{snapshot.holdings.solBalance.toFixed(6)}</td>
-                <td className="px-4 py-2 text-right text-gray-400">
-                  {snapshot.holdings.solPrice != null
-                    ? `$${snapshot.holdings.solPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                    : '—'}
-                </td>
-                <td className="px-4 py-2 text-right text-gray-400">
-                  {snapshot.holdings.solPrice != null
-                    ? `$${(snapshot.holdings.solBalance * snapshot.holdings.solPrice).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                    : '—'}
-                </td>
-              </tr>
+              {walletType !== 'bitvavo' && (
+                <tr className="border-b border-gray-800/50">
+                  <td className="px-4 py-2 text-white flex items-center gap-2">
+                    <img src="https://solscan.io/_next/static/media/solPriceLogo.76eeb122.png" alt="SOL" className="w-5 h-5 rounded-full" onError={e => (e.currentTarget.style.display = 'none')} />
+                    SOL
+                  </td>
+                  <td className="px-4 py-2 text-right font-mono text-white">{snapshot.holdings.solBalance.toFixed(6)}</td>
+                  <td className="px-4 py-2 text-right text-gray-400">
+                    {snapshot.holdings.solPrice != null
+                      ? `$${snapshot.holdings.solPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : '—'}
+                  </td>
+                  <td className="px-4 py-2 text-right text-gray-400">
+                    {snapshot.holdings.solPrice != null
+                      ? `$${(snapshot.holdings.solBalance * snapshot.holdings.solPrice).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : '—'}
+                  </td>
+                  <td className="px-4 py-2 text-center">
+                    <button
+                      onClick={() => refreshPrice(SOL_MINT)}
+                      disabled={refreshing.has(SOL_MINT)}
+                      className="text-gray-600 hover:text-purple-400 disabled:opacity-40 transition-colors"
+                      title="Refresh SOL price"
+                    >
+                      <RefreshCw size={12} className={refreshing.has(SOL_MINT) ? 'animate-spin' : ''} />
+                    </button>
+                  </td>
+                </tr>
+              )}
               {snapshot.holdings.tokens.map(t => {
                 const meta = resolveTokenMeta(t);
                 return (
@@ -253,6 +316,16 @@ function SnapshotCard({ snapshot, onDelete }: { snapshot: WalletSnapshot; onDele
                     <td className="px-4 py-2 text-right text-gray-400">
                       {t.usdValue != null ? `$${t.usdValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
                     </td>
+                    <td className="px-4 py-2 text-center">
+                      <button
+                        onClick={() => refreshPrice(t.mint)}
+                        disabled={refreshing.has(t.mint)}
+                        className="text-gray-600 hover:text-purple-400 disabled:opacity-40 transition-colors"
+                        title={`Refresh ${meta.symbol} price`}
+                      >
+                        <RefreshCw size={12} className={refreshing.has(t.mint) ? 'animate-spin' : ''} />
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -265,13 +338,22 @@ function SnapshotCard({ snapshot, onDelete }: { snapshot: WalletSnapshot; onDele
 }
 
 export function SnapshotsPage() {
-  const { activeAddress, settings } = useApp();
-  const { holdings } = useHoldings(activeAddress);
-  const { transactions, isComplete } = useTransactions(activeAddress);
-  const { stakingRewards } = useStaking(activeAddress);
-  const { snapshots, creating, error, create, remove } = useSnapshots(activeAddress);
+  const { wallets, activeAddress, settings } = useApp();
+  const wallet = wallets.find(w => w.address === activeAddress);
+  const isBitvavo = wallet?.type === 'bitvavo';
 
-  const rewardTxns = useMemo(() => stakingRewardsToTransactions(stakingRewards), [stakingRewards]);
+  const solanaHoldings = useHoldings(isBitvavo ? null : activeAddress);
+  const bitvavoHoldings = useBitvavoHoldings(isBitvavo ? activeAddress : null);
+  const { holdings } = isBitvavo ? bitvavoHoldings : solanaHoldings;
+
+  const solanaTransactions = useTransactions(isBitvavo ? null : activeAddress);
+  const bitvavoTxns = useBitvavoTransactions(isBitvavo ? activeAddress : null);
+  const { transactions, isComplete } = isBitvavo ? bitvavoTxns : solanaTransactions;
+
+  const { stakingRewards } = useStaking(isBitvavo ? null : activeAddress);
+  const { snapshots, creating, error, create, remove, updateSnapshot } = useSnapshots(activeAddress);
+
+  const rewardTxns = useMemo(() => isBitvavo ? [] : stakingRewardsToTransactions(stakingRewards), [stakingRewards, isBitvavo]);
   const allTransactions = useMemo(() => [...transactions, ...rewardTxns], [transactions, rewardTxns]);
   const [showCreate, setShowCreate] = useState(false);
   const [, setMetaReady] = useState(0);
@@ -295,8 +377,8 @@ export function SnapshotsPage() {
     return <div className="text-gray-500 text-center py-20">Select a wallet first</div>;
   }
 
-  if (!settings.apiKey) {
-    return <div className="text-gray-500 text-center py-20">Add your Helius API key in Settings</div>;
+  if (!isBitvavo && !settings.helius) {
+    return <div className="text-gray-500 text-center py-20">Set HELIUS_API_KEY in .env to get started</div>;
   }
 
   const handleCreate = async (label: string, date: Date) => {
@@ -342,7 +424,13 @@ export function SnapshotsPage() {
 
       <div className="space-y-4">
         {snapshots.map(snap => (
-          <SnapshotCard key={snap.id} snapshot={snap} onDelete={() => remove(snap.id)} />
+          <SnapshotCard
+            key={snap.id}
+            snapshot={snap}
+            walletType={wallet?.type ?? 'solana'}
+            onDelete={() => remove(snap.id)}
+            onUpdate={updateSnapshot}
+          />
         ))}
       </div>
 

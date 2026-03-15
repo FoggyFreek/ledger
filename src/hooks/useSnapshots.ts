@@ -47,5 +47,12 @@ export function useSnapshots(address: string | null) {
     setSnapshots(all.filter(s => s.walletAddress === address));
   }, [address]);
 
-  return { snapshots, creating, error, create, remove, reload };
+  const updateSnapshot = useCallback(async (updated: WalletSnapshot) => {
+    const all = await loadSnapshots();
+    const replaced = all.map(s => s.id === updated.id ? updated : s);
+    await saveSnapshots(replaced);
+    setSnapshots(replaced.filter(s => s.walletAddress === address));
+  }, [address]);
+
+  return { snapshots, creating, error, create, remove, reload, updateSnapshot };
 }

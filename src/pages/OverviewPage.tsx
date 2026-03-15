@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import { RefreshCw, ExternalLink, TrendingUp, Layers, RefreshCcw, ShieldCheck } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useHoldings } from '../hooks/useHoldings';
+import { useBitvavoHoldings } from '../hooks/useBitvavoHoldings';
 import { useStaking } from '../hooks/useStaking';
 import { useToast } from '../hooks/useToast';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
@@ -9,6 +10,7 @@ import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { AddressDisplay } from '../components/shared/AddressDisplay';
 import { Toast } from '../components/shared/Toast';
 import { SKR_RAW_TO_UI } from '../lib/helius';
+import { isBitvavoWallet } from '../lib/walletType';
 import type { StakeAccount, SeekerStakeAccount, WalletHoldings } from '../types/wallet';
 
 const SKR_MINT = 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3';
@@ -36,17 +38,20 @@ interface SummaryCardsProps {
   tokenCount: number;
   totalStakedSol: number;
   fetchedAt: number;
+  isBitvavo?: boolean;
 }
 
-function SummaryCards({ solBalance, usdTotal, tokenCount, totalStakedSol, fetchedAt }: SummaryCardsProps) {
+function SummaryCards({ solBalance, usdTotal, tokenCount, totalStakedSol, fetchedAt, isBitvavo }: SummaryCardsProps) {
   const fetchedDate = new Date(fetchedAt);
   return (
-    <div className="grid grid-cols-3 gap-4">
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <p className="text-xs text-gray-500 mb-1">SOL Balance</p>
-        <p className="text-2xl font-bold text-white">{solBalance.toFixed(4)}</p>
-        <p className="text-xs text-gray-500 mt-1">SOL</p>
-      </div>
+    <div className={`grid ${isBitvavo ? 'grid-cols-2' : 'grid-cols-3'} gap-4`}>
+      {!isBitvavo && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-1">SOL Balance</p>
+          <p className="text-2xl font-bold text-white">{solBalance.toFixed(4)}</p>
+          <p className="text-xs text-gray-500 mt-1">SOL</p>
+        </div>
+      )}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
         <p className="text-xs text-gray-500 mb-1">Total Value</p>
         <p className="text-2xl font-bold text-white">
@@ -55,7 +60,7 @@ function SummaryCards({ solBalance, usdTotal, tokenCount, totalStakedSol, fetche
             : '—'}
         </p>
         <p className="text-xs text-gray-500 mt-1">
-          {tokenCount} tokens + SOL{totalStakedSol > 0 ? ` + ${totalStakedSol.toFixed(2)} staked` : ''}
+          {tokenCount} tokens{!isBitvavo && ' + SOL'}{totalStakedSol > 0 ? ` + ${totalStakedSol.toFixed(2)} staked` : ''}
         </p>
       </div>
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
@@ -73,9 +78,10 @@ interface TokenHoldingsSectionProps {
   holdings: WalletHoldings;
   activeAddress: string;
   solUsdValue: number | null;
+  isBitvavo?: boolean;
 }
 
-function TokenHoldingsSection({ holdings, activeAddress, solUsdValue }: TokenHoldingsSectionProps) {
+function TokenHoldingsSection({ holdings, activeAddress, solUsdValue, isBitvavo }: TokenHoldingsSectionProps) {
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
@@ -91,50 +97,52 @@ function TokenHoldingsSection({ holdings, activeAddress, solUsdValue }: TokenHol
               <th className="text-right px-4 py-2">Balance</th>
               <th className="text-right px-4 py-2">USD Value</th>
               <th className="text-right px-4 py-2">Price</th>
-              <th className="px-4 py-2"></th>
+              {!isBitvavo && <th className="px-4 py-2"></th>}
             </tr>
           </thead>
           <tbody>
-            {/* SOL row */}
-            <tr className="border-b border-gray-800/50 hover:bg-gray-800/30">
-              <td className="px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <img
-                    src="https://solscan.io/_next/static/media/solPriceLogo.76eeb122.png"
-                    alt="SOL"
-                    className="w-7 h-7 rounded-full"
-                    onError={e => (e.currentTarget.style.display = 'none')}
-                  />
-                  <div>
-                    <p className="font-medium text-white">SOL</p>
-                    <p className="text-xs text-gray-500">Solana</p>
+            {/* SOL row — only for Solana wallets */}
+            {!isBitvavo && (
+              <tr className="border-b border-gray-800/50 hover:bg-gray-800/30">
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <img
+                      src="https://solscan.io/_next/static/media/solPriceLogo.76eeb122.png"
+                      alt="SOL"
+                      className="w-7 h-7 rounded-full"
+                      onError={e => (e.currentTarget.style.display = 'none')}
+                    />
+                    <div>
+                      <p className="font-medium text-white">SOL</p>
+                      <p className="text-xs text-gray-500">Solana</p>
+                    </div>
                   </div>
-                </div>
-              </td>
-              <td className="px-4 py-3 text-right text-white font-mono">
-                {holdings.solBalance.toFixed(6)}
-              </td>
-              <td className="px-4 py-3 text-right text-white">
-                {solUsdValue != null
-                  ? `$${solUsdValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                  : '—'}
-              </td>
-              <td className="px-4 py-3 text-right text-gray-400 text-xs font-mono">
-                {holdings.solPrice != null
-                  ? `$${holdings.solPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                  : '—'}
-              </td>
-              <td className="px-4 py-3 text-right">
-                <a
-                  href={`https://solscan.io/account/${activeAddress}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-gray-600 hover:text-blue-400"
-                >
-                  <ExternalLink size={12} />
-                </a>
-              </td>
-            </tr>
+                </td>
+                <td className="px-4 py-3 text-right text-white font-mono">
+                  {holdings.solBalance.toFixed(6)}
+                </td>
+                <td className="px-4 py-3 text-right text-white">
+                  {solUsdValue != null
+                    ? `$${solUsdValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                    : '—'}
+                </td>
+                <td className="px-4 py-3 text-right text-gray-400 text-xs font-mono">
+                  {holdings.solPrice != null
+                    ? `$${holdings.solPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                    : '—'}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <a
+                    href={`https://solscan.io/account/${activeAddress}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-gray-600 hover:text-blue-400"
+                  >
+                    <ExternalLink size={12} />
+                  </a>
+                </td>
+              </tr>
+            )}
 
             {/* SPL token rows */}
             {holdings.tokens.map(token => {
@@ -173,25 +181,27 @@ function TokenHoldingsSection({ holdings, activeAddress, solUsdValue }: TokenHol
                       : '—'}
                   </td>
                   <td className="px-4 py-3 text-right text-gray-400 text-xs font-mono">
-                    {price != null ? `$${price.toFixed(6)}` : '—'}
+                    {price != null ? `$${price.toFixed(3)}` : '—'}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <a
-                      href={`https://solscan.io/token/${token.mint}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-gray-600 hover:text-blue-400"
-                    >
-                      <ExternalLink size={12} />
-                    </a>
-                  </td>
+                  {!isBitvavo && (
+                    <td className="px-4 py-3 text-right">
+                      <a
+                        href={`https://solscan.io/token/${token.mint}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-gray-600 hover:text-blue-400"
+                      >
+                        <ExternalLink size={12} />
+                      </a>
+                    </td>
+                  )}
                 </tr>
               );
             })}
           </tbody>
         </table>
         {holdings.tokens.length === 0 && (
-          <p className="text-center text-gray-500 py-8 text-sm">No SPL tokens found</p>
+          <p className="text-center text-gray-500 py-8 text-sm">No tokens found</p>
         )}
       </div>
     </div>
@@ -480,7 +490,13 @@ function NativeStakingSection({
 
 export function OverviewPage() {
   const { wallets, activeAddress, settings } = useApp();
-  const { holdings, loading, error, refresh } = useHoldings(activeAddress);
+  const wallet = wallets.find(w => w.address === activeAddress);
+  const isBitvavo = wallet?.type === 'bitvavo';
+
+  const solanaHoldings = useHoldings(isBitvavo ? null : activeAddress);
+  const bitvavoHoldings = useBitvavoHoldings(isBitvavo ? activeAddress : null);
+  const { holdings, loading, error, refresh } = isBitvavo ? bitvavoHoldings : solanaHoldings;
+
   const {
     stakeAccounts,
     stakingRewards,
@@ -494,22 +510,24 @@ export function OverviewPage() {
     refreshSkrOnly,
     updateRewards,
     validateRewards,
-  } = useStaking(activeAddress);
+  } = useStaking(isBitvavo ? null : activeAddress);
 
   const { toast, showToast, dismissToast } = useToast();
-  const wallet = wallets.find(w => w.address === activeAddress);
 
   useEffect(() => {
-    if (activeAddress && settings.apiKey) {
+    if (!activeAddress) return;
+    if (isBitvavo) {
+      refresh(false);
+    } else if (settings.helius) {
       refresh(false);
       refreshStaking(false);
     }
-  }, [activeAddress, settings.apiKey, refresh, refreshStaking]);
+  }, [activeAddress, settings.helius, isBitvavo, refresh, refreshStaking]);
 
   const handleRefresh = useCallback(() => {
     refresh(true);
-    refreshSkrOnly(true);
-  }, [refresh, refreshSkrOnly]);
+    if (!isBitvavo) refreshSkrOnly(true);
+  }, [refresh, refreshSkrOnly, isBitvavo]);
 
   const handleValidate = useCallback(async () => {
     const result = await validateRewards();
@@ -625,11 +643,11 @@ export function OverviewPage() {
     );
   }
 
-  if (!settings.apiKey) {
+  if (!isBitvavo && !settings.helius) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-gray-500">
         <p className="text-lg">API key required</p>
-        <p className="text-sm mt-1">Go to Settings to add your Helius API key</p>
+        <p className="text-sm mt-1">Set HELIUS_API_KEY in .env to get started</p>
       </div>
     );
   }
@@ -642,7 +660,10 @@ export function OverviewPage() {
       <div className="flex items-start justify-between">
         <div>
           <h2 className="text-xl font-bold text-white">{wallet?.label ?? 'Wallet'}</h2>
-          <AddressDisplay address={activeAddress} short={false} showExplorer />
+          {isBitvavo
+            ? <p className="text-sm text-gray-500 font-mono">Bitvavo Exchange</p>
+            : <AddressDisplay address={activeAddress} short={false} showExplorer />
+          }
         </div>
         <button
           onClick={handleRefresh}
@@ -655,7 +676,7 @@ export function OverviewPage() {
       </div>
 
       {error && <ErrorBanner message={error} />}
-      {stakingError && <ErrorBanner message={`Staking: ${stakingError}`} />}
+      {!isBitvavo && stakingError && <ErrorBanner message={`Staking: ${stakingError}`} />}
 
       {/* Summary cards */}
       {holdings && (
@@ -665,6 +686,7 @@ export function OverviewPage() {
           tokenCount={holdings.tokens.length}
           totalStakedSol={totalStakedSol}
           fetchedAt={holdings.fetchedAt}
+          isBitvavo={isBitvavo}
         />
       )}
 
@@ -680,11 +702,12 @@ export function OverviewPage() {
           holdings={holdings}
           activeAddress={activeAddress}
           solUsdValue={solUsdValue}
+          isBitvavo={isBitvavo}
         />
       )}
 
-      {/* Seeker (SKR) Staking */}
-      {(seekerAccounts.length > 0 || stakingLoading) && (
+      {/* Seeker (SKR) Staking — Solana only */}
+      {!isBitvavo && (seekerAccounts.length > 0 || stakingLoading) && (
         <SeekerStakingSection
           seekerAccounts={seekerAccounts}
           loading={stakingLoading}
@@ -694,8 +717,8 @@ export function OverviewPage() {
         />
       )}
 
-      {/* Native Staking */}
-      {(stakeAccounts.length > 0 || stakingLoading) && (
+      {/* Native Staking — Solana only */}
+      {!isBitvavo && (stakeAccounts.length > 0 || stakingLoading) && (
         <NativeStakingSection
           stakeAccounts={stakeAccounts}
           loading={stakingLoading}

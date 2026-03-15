@@ -1,20 +1,26 @@
-import { useState } from 'react';
-import { X, Eye, EyeOff } from 'lucide-react';
+import { X, CheckCircle, XCircle } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
 interface Props {
   onClose: () => void;
 }
 
-export function SettingsModal({ onClose }: Props) {
-  const { settings, updateSettings } = useApp();
-  const [apiKey, setApiKey] = useState(settings.apiKey);
-  const [showKey, setShowKey] = useState(false);
+function KeyRow({ label, configured, envVar }: { label: string; configured: boolean; envVar: string }) {
+  return (
+    <div className="flex items-center justify-between py-3 border-b border-gray-800 last:border-0">
+      <div>
+        <p className="text-sm text-white">{label}</p>
+        <p className="text-xs text-gray-500 font-mono">{envVar}</p>
+      </div>
+      {configured
+        ? <CheckCircle size={18} className="text-green-400 shrink-0" />
+        : <XCircle size={18} className="text-gray-600 shrink-0" />}
+    </div>
+  );
+}
 
-  const save = () => {
-    updateSettings({ ...settings, apiKey: apiKey.trim() });
-    onClose();
-  };
+export function SettingsModal({ onClose }: Props) {
+  const { settings } = useApp();
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
@@ -26,47 +32,22 @@ export function SettingsModal({ onClose }: Props) {
           </button>
         </div>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm text-gray-300 mb-1">
-              Helius API Key
-            </label>
-            <p className="text-xs text-gray-500 mb-2">
-              Get a free key at{' '}
-              <span className="text-blue-400">helius.dev</span> (1M credits/month free)
-            </p>
-            <div className="relative">
-              <input
-                type={showKey ? 'text' : 'password'}
-                value={apiKey}
-                onChange={e => setApiKey(e.target.value)}
-                placeholder="your-helius-api-key"
-                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 pr-10 focus:outline-none focus:border-purple-500"
-              />
-              <button
-                onClick={() => setShowKey(s => !s)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200"
-              >
-                {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </div>
+        <p className="text-xs text-gray-500 mb-4">
+          API keys are configured via environment variables in <span className="font-mono text-gray-400">.env</span>.
+        </p>
 
-          <div className="flex gap-2 pt-2">
-            <button
-              onClick={save}
-              className="flex-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg py-2 text-sm font-medium transition-colors"
-            >
-              Save
-            </button>
-            <button
-              onClick={onClose}
-              className="flex-1 bg-gray-700 hover:bg-gray-600 text-white rounded-lg py-2 text-sm transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
+        <div>
+          <KeyRow label="Helius" configured={settings.helius} envVar="HELIUS_API_KEY" />
+          <KeyRow label="CoinGecko" configured={settings.coingecko} envVar="COINGECKO_API_KEY" />
+          <KeyRow label="Bitvavo" configured={settings.bitvavo} envVar="BITVAVO_KEY + BITVAVO_SECRET" />
         </div>
+
+        <button
+          onClick={onClose}
+          className="mt-6 w-full bg-gray-700 hover:bg-gray-600 text-white rounded-lg py-2 text-sm transition-colors"
+        >
+          Close
+        </button>
       </div>
     </div>
   );

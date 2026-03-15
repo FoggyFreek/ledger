@@ -12,15 +12,6 @@ const sql = postgres({
 
 export async function initDb() {
   await sql`
-    CREATE TABLE IF NOT EXISTS settings (
-      id      BOOLEAN PRIMARY KEY DEFAULT TRUE,
-      api_key TEXT NOT NULL DEFAULT '',
-      rpc_url TEXT NOT NULL DEFAULT '',
-      CONSTRAINT single_row CHECK (id = TRUE)
-    )
-  `;
-
-  await sql`
     CREATE TABLE IF NOT EXISTS wallets (
       address        TEXT   PRIMARY KEY,
       label          TEXT   NOT NULL DEFAULT '',
@@ -111,8 +102,14 @@ export async function initDb() {
   `;
 
   await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS counterparty TEXT`;
+  await sql`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS wallet_type TEXT NOT NULL DEFAULT 'solana'`;
 
-  await sql`DROP TABLE IF EXISTS staking_rewards_meta`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS staking_rewards_meta (
+      wallet_address TEXT     PRIMARY KEY REFERENCES wallets(address) ON DELETE CASCADE,
+      epochs_fetched INTEGER[] NOT NULL DEFAULT '{}'
+    )
+  `;
 
   await sql`
     CREATE TABLE IF NOT EXISTS seeker_stake_accounts (

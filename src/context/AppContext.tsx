@@ -1,18 +1,19 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
-import type { WalletEntry } from '../types/wallet';
+import type { WalletEntry, WalletType } from '../types/wallet';
 import type { Settings } from '../lib/storage';
 import {
   loadWallets, saveWallets,
-  loadSettings, saveSettings,
+  loadSettings,
 } from '../lib/storage';
+import { getBitvavoStatus } from '../lib/bitvavo';
+import { BITVAVO_ADDRESS } from '../lib/walletType';
 
 interface AppContextValue {
   wallets: WalletEntry[];
-  addWallet: (address: string, label: string) => void;
+  addWallet: (address: string, label: string, type?: WalletType) => void;
   removeWallet: (address: string) => void;
   updateWalletLabel: (address: string, label: string) => void;
   settings: Settings;
-  updateSettings: (s: Settings) => void;
   activeAddress: string | null;
   setActiveAddress: (addr: string | null) => void;
 }
@@ -21,7 +22,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [wallets, setWallets] = useState<WalletEntry[]>([]);
-  const [settings, setSettings] = useState<Settings>({ apiKey: '', rpcUrl: '' });
+  const [settings, setSettings] = useState<Settings>({ helius: false, coingecko: false, bitvavo: false });
   const [activeAddress, setActiveAddress] = useState<string | null>(null);
 
   useEffect(() => {
@@ -31,13 +32,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (w.length > 0) setActiveAddress(w[0].address);
       const s = await loadSettings();
       setSettings(s);
+
+      // Auto-add/remove Bitvavo wallet based on server config
+      try {
+        const { configured } = await getBitvavoStatus();
+        const hasBitvavo = w.some(wallet => wallet.address === BITVAVO_ADDRESS);
+        if (configured && !hasBitvavo) {
+          const entry: WalletEntry = {
+            address: BITVAVO_ADDRESS,
+            label: 'Bitvavo',
+            type: 'bitvavo',
+            addedAt: Date.now(),
+            lastRefreshed: null,
+          };
+          const next = [...w, entry];
+          saveWallets(next);
+          setWallets(next);
+        } else if (!configured && hasBitvavo) {
+          const next = w.filter(wallet => wallet.address !== BITVAVO_ADDRESS);
+          saveWallets(next);
+          setWallets(next);
+        }
+      } catch {
+        // Bitvavo status check failed — ignore
+      }
     })();
   }, []);
 
-  const addWallet = useCallback((address: string, label: string) => {
+  const addWallet = useCallback((address: string, label: string, type: WalletType = 'solana') => {
     setWallets(prev => {
       if (prev.find(w => w.address === address)) return prev;
-      const next = [...prev, { address, label, addedAt: Date.now(), lastRefreshed: null }];
+      const next = [...prev, { address, label, type, addedAt: Date.now(), lastRefreshed: null }];
       saveWallets(next);
       return next;
     });
@@ -61,15 +86,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const updateSettings = useCallback((s: Settings) => {
-    setSettings(s);
-    saveSettings(s);
-  }, []);
-
   return (
     <AppContext.Provider value={{
       wallets, addWallet, removeWallet, updateWalletLabel,
-      settings, updateSettings,
+      settings,
       activeAddress, setActiveAddress,
     }}>
       {children}
