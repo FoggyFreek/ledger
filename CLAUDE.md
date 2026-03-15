@@ -20,14 +20,13 @@ npm test          # Run Vitest test suite
 
 - **`server/index.ts`** — Hono app served by `@hono/node-server` on port 3001 (env `SERVER_PORT`). Mounts all route modules under `/api/v1`.
 - **`server/db.ts`** — `postgres` client + `initDb()` which creates all tables on startup.
-- **`server/routes/`** — one file per resource: `settings`, `wallets`, `holdings`, `transactions`, `snapshots`, `staking`, `groups`, `helius` (Helius proxy), `bitvavo` (Bitvavo proxy, HMAC-signed), `coingecko` (CoinGecko proxy, rate-limited).
+- **`server/routes/`** — one file per resource: `wallets`, `holdings`, `transactions`, `snapshots`, `staking`, `groups`, `helius` (Helius proxy), `bitvavo` (Bitvavo proxy, HMAC-signed), `coingecko` (CoinGecko proxy, rate-limited).
 - **Transaction convention**: build all query objects *outside* `sql.begin()`, keep the callback logic-free (just return a flat array of pre-built queries). Use `sql\`SELECT 1\`` as a no-op for conditional inserts. See `.claude/skills/backend-api/postgres-transactions.md` for examples.
 
 #### PostgreSQL schema
 
 | Table | Key | Contents |
 |---|---|---|
-| `settings` | single row | `api_key`, `rpc_url` |
 | `wallets` | `address` (PK) | `label`, `added_at`, `last_refreshed` |
 | `holdings_cache` | `wallet_address` (FK) | `data` JSONB, `fetched_at` |
 | `transactions` | `(wallet_address, signature)` PK | one row per transaction; `block_time`, `slot`, `fee`, `tax_category`, `helius_type`, `description`, `err`, `balance_changes` JSONB; indexed by `(wallet_address, block_time DESC)` |
@@ -45,7 +44,7 @@ npm test          # Run Vitest test suite
 ### State layers
 
 1. **PostgreSQL** (via `src/lib/storage.ts`) — async fetch wrappers that call `GET`/`PUT`/`DELETE /api/v1/...`. No localStorage; no schema versioning needed.
-2. **React Context** (`src/context/AppContext.tsx`) — holds the active wallet address, wallet list, and settings in memory. All hooks read/write through this.
+2. **React Context** (`src/context/AppContext.tsx`) — holds the active wallet address and wallet list. All hooks read/write through this.
 3. **Custom hooks** (`src/hooks/`) — `useHoldings`, `useTransactions`, `useSnapshots`, `useStaking`, `useBitvavoHoldings` each manage their own loading/error state and call into `storage.ts` for caching.
 
 ### Page routing
@@ -64,7 +63,7 @@ Helius endpoints used:
 - **RPC `getInflationReward`** — fetches epoch-by-epoch staking rewards for a list of stake account pubkeys. Called per epoch in parallel by `getInflationRewards()`.
 - **RPC `getEpochInfo` / `getEpochSchedule`** — used to classify stake account status and estimate reward timestamps.
 
-All Helius requests are proxied through the backend (`POST /api/v1/helius/rpc` for JSON-RPC/DAS, `POST /api/v1/helius/enhanced-transactions` for Enhanced Transactions). The backend reads the API key from the `settings` table and injects it server-side. A module-level `enqueue` function in the frontend rate-limits outgoing requests using a **sliding window** (max 5 req/s) plus a concurrency cap of 3 in-flight requests. All API methods throw typed `Error` objects on failure.
+All Helius requests are proxied through the backend (`POST /api/v1/helius/rpc` for JSON-RPC/DAS, `POST /api/v1/helius/enhanced-transactions` for Enhanced Transactions). The backend reads the API key from the environment variables and injects it server-side. A module-level `enqueue` function in the frontend rate-limits outgoing requests using a **sliding window** (max 5 req/s) plus a concurrency cap of 3 in-flight requests. All API methods throw typed `Error` objects on failure.
 
 #### Token registry (`_tokenRegistry`)
 
