@@ -20,7 +20,7 @@ npm test          # Run Vitest test suite
 
 - **`server/index.ts`** — Hono app served by `@hono/node-server` on port 3001 (env `SERVER_PORT`). Mounts all route modules under `/api/v1`.
 - **`server/db.ts`** — `postgres` client + `initDb()` which creates all tables on startup.
-- **`server/routes/`** — one file per resource: `settings`, `wallets`, `holdings`, `transactions`, `snapshots`, `staking`, `groups`, `helius` (API proxy).
+- **`server/routes/`** — one file per resource: `settings`, `wallets`, `holdings`, `transactions`, `snapshots`, `staking`, `groups`, `helius` (Helius proxy), `bitvavo` (Bitvavo proxy, HMAC-signed), `coingecko` (CoinGecko proxy, rate-limited).
 - **Transaction convention**: build all query objects *outside* `sql.begin()`, keep the callback logic-free (just return a flat array of pre-built queries). Use `sql\`SELECT 1\`` as a no-op for conditional inserts. See `.claude/skills/backend-api/postgres-transactions.md` for examples.
 
 #### PostgreSQL schema
@@ -46,7 +46,7 @@ npm test          # Run Vitest test suite
 
 1. **PostgreSQL** (via `src/lib/storage.ts`) — async fetch wrappers that call `GET`/`PUT`/`DELETE /api/v1/...`. No localStorage; no schema versioning needed.
 2. **React Context** (`src/context/AppContext.tsx`) — holds the active wallet address, wallet list, and settings in memory. All hooks read/write through this.
-3. **Custom hooks** (`src/hooks/`) — `useHoldings`, `useTransactions`, `useSnapshots`, `useStaking` each manage their own loading/error state and call into `storage.ts` for caching.
+3. **Custom hooks** (`src/hooks/`) — `useHoldings`, `useTransactions`, `useSnapshots`, `useStaking`, `useBitvavoHoldings` each manage their own loading/error state and call into `storage.ts` for caching.
 
 ### Page routing
 
@@ -91,7 +91,7 @@ Display helpers used by `TransactionsPage` and `GroupsPage`:
 
 Users can tag transactions into named groups for cost-basis tracking. Each group member stores `usdInflow`/`usdOutflow` computed via `computeUsdValues()` in `src/lib/groups.ts` (fetches historical prices from an external price API at transaction `blockTime`).
 
-- **`src/lib/groups.ts`** — `computeUsdValues(transactions[])` — batches price fetches by timestamp, returns `GroupMemberInput[]` with USD values
+- **`src/lib/groups.ts`** — `computeUsdValues(transactions[])` — batches price fetches by timestamp via `prices.ts` (DeFiLlama), returns `GroupMemberInput[]` with USD values
 - **`src/lib/groupSummary.ts`** — `aggregateBalances(members[])` — runs `interpretTransaction` on each member's `balanceChanges`, accumulates per-mint `inTotal`/`outTotal`/`netTotal`; sorted by `|inTotal - outTotal|` descending
 - **`src/types/groups.ts`** — `TransactionGroup`, `GroupMember`, `GroupMemberInput`, `GroupMemberships` types
 - **`src/components/groups/`** — `GroupBadges`, `AddToGroupModal` components
@@ -136,6 +136,21 @@ Reward timestamps are estimated by anchoring to `Date.now()` + `getEpochInfo().a
 - **Staked amount formula**: `stakedRaw = (shares × share_price) / 1_000_000_000n` (BigInt); UI amount = `stakedRaw / 1e6`
 - **`unstaking_amount`** — SKR currently in cooldown (172 800 s = 48 h), displayed separately in yellow
 - **Storage**: `seeker_stake_accounts` table — `staked_raw` and `unstaking_amount` stored as `NUMERIC`; returned as strings by postgres.js, converted via `BigInt()` in `storage.ts`
+
+### Bitvavo exchange integration
+
+Bitvavo is treated as a virtual wallet with address `bitvavo:account`. `isBitvavoWallet(address)` (from `src/lib/walletType.ts`) guards Bitvavo-specific rendering paths throughout the app.
+
+- **`server/routes/bitvavo.ts`** — proxies Bitvavo REST API with HMAC-SHA256 request signing using `BITVAVO_KEY` + `BITVAVO_SECRET` env vars. Exposes: `GET /api/v1/bitvavo/balance`, `GET /api/v1/bitvavo/history` (paginated transaction history), `GET /api/v1/bitvavo/transfers` (deposit/withdrawal history).
+- **`src/lib/bitvavo.ts`** — types (`BitvavoBalance`, `BitvavoHistoryEntry`, `BitvavoTransferEntry`) and `getAccountHistory()` fetch wrapper calling the backend proxy.
+- **`src/lib/bitvavoParser.ts`** — maps Bitvavo API data to app-native types:
+  - `parseBitvavoTrade(entry)` → `ParsedTransaction` with `signature: "bitvavo-trade-{id}"`, `slot: 0`, `fee: 0`
+  - `parseBitvavoBalances(balances)` → `WalletHoldings`
+  - `fetchAllBitvavoTransactions()` / `fetchBitvavoTransactionsForYear(year)` — paginate all history pages
+  - Bitvavo `type` → `TaxCategory` mapping: `buy/sell` → `TRADE`, `staking/fixed_staking` → `STAKING_REWARD`, `deposit` → `TRANSFER_IN`, `withdrawal` → `TRANSFER_OUT`, `affiliate/distribution/rebate` → `AIRDROP`
+- **`src/lib/prices.ts`** — `BITVAVO_COINGECKO_IDS` map (Bitvavo ticker → CoinGecko ID); `fetchBitvavoLogoUris(symbols[])` fetches logo URLs via `/api/v1/coingecko/coins-markets`; historical price helpers for `computeUsdValues()` via DeFiLlama.
+- **`server/routes/coingecko.ts`** — proxies `GET https://api.coingecko.com/api/v3/coins/markets` with a 2-second minimum interval queue to stay within the free-tier rate limit. Optional `COINGECKO_API_KEY` env var for higher limits.
+- Bitvavo transactions are identified by `slot === 0` (same convention as synthetic staking reward transactions) — no Solscan link, no fee display.
 
 ### Tailwind
 
