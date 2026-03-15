@@ -263,7 +263,7 @@ function SnapshotCard({
               </tr>
             </thead>
             <tbody>
-              {walletType !== 'bitvavo' && (
+              
                 <tr className="border-b border-gray-800/50">
                   <td className="px-4 py-2 text-white flex items-center gap-2">
                     <img src="https://solscan.io/_next/static/media/solPriceLogo.76eeb122.png" alt="SOL" className="w-5 h-5 rounded-full" onError={e => (e.currentTarget.style.display = 'none')} />
@@ -291,7 +291,7 @@ function SnapshotCard({
                     </button>
                   </td>
                 </tr>
-              )}
+              
               {snapshot.holdings.tokens.map(t => {
                 const meta = resolveTokenMeta(t);
                 return (

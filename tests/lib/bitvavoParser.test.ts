@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseBitvavoTrade,
-  parseBitvavoDeposit,
-  parseBitvavoWithdrawal,
   parseBitvavoBalances,
 } from '../../src/lib/bitvavoParser';
 import type { BitvavoHistoryEntry, BitvavoTransferEntry, BitvavoBalance } from '../../src/lib/bitvavo';
@@ -10,15 +8,18 @@ import type { BitvavoHistoryEntry, BitvavoTransferEntry, BitvavoBalance } from '
 describe('parseBitvavoTrade', () => {
   it('buy: creates +asset and -EUR balance changes', () => {
     const entry: BitvavoHistoryEntry = {
-      timestamp: 1700000000000,
-      symbol: 'BTC',
-      amount: '0.5',
-      side: 'buy',
-      price: '40000',
-      taker: true,
-      fee: '20',
-      feeCurrency: 'EUR',
-      settled: true,
+      transactionId: 'test-buy-btc-1',
+      executedAt: new Date(1700000000000).toISOString(),
+      type: 'buy',
+      priceCurrency: 'EUR',
+      priceAmount: '40000',
+      sentCurrency: 'EUR',
+      sentAmount: '20000', // 0.5 * 40000, fee folds in
+      receivedCurrency: 'BTC',
+      receivedAmount: '0.5',
+      feesCurrency: 'EUR',
+      feesAmount: '20',
+      address: '',
     };
     const tx = parseBitvavoTrade(entry);
     expect(tx.taxCategory).toBe('TRADE');
@@ -39,15 +40,18 @@ describe('parseBitvavoTrade', () => {
 
   it('sell: creates -asset and +EUR balance changes', () => {
     const entry: BitvavoHistoryEntry = {
-      timestamp: 1700000000000,
-      symbol: 'ETH',
-      amount: '2',
-      side: 'sell',
-      price: '2000',
-      taker: false,
-      fee: '4',
-      feeCurrency: 'EUR',
-      settled: true,
+      transactionId: 'test-sell-eth-1',
+      executedAt: new Date(1700000000000).toISOString(),
+      type: 'sell',
+      priceCurrency: 'EUR',
+      priceAmount: '2000',
+      sentCurrency: 'ETH',
+      sentAmount: '2',
+      receivedCurrency: 'EUR',
+      receivedAmount: '3996', // net: 2 * 2000 - 4
+      feesCurrency: 'EUR',
+      feesAmount: '0',
+      address: '',
     };
     const tx = parseBitvavoTrade(entry);
     expect(tx.taxCategory).toBe('TRADE');
@@ -62,15 +66,18 @@ describe('parseBitvavoTrade', () => {
 
   it('non-EUR fee: creates third balance change for fee currency', () => {
     const entry: BitvavoHistoryEntry = {
-      timestamp: 1700000000000,
-      symbol: 'BTC',
-      amount: '1',
-      side: 'buy',
-      price: '30000',
-      taker: true,
-      fee: '0.0001',
-      feeCurrency: 'BTC',
-      settled: true,
+      transactionId: 'test-buy-btc-fee',
+      executedAt: new Date(1700000000000).toISOString(),
+      type: 'buy',
+      priceCurrency: 'EUR',
+      priceAmount: '30000',
+      sentCurrency: 'EUR',
+      sentAmount: '30000',
+      receivedCurrency: 'BTC',
+      receivedAmount: '1',
+      feesCurrency: 'BTC',
+      feesAmount: '0.0001',
+      address: '',
     };
     const tx = parseBitvavoTrade(entry);
     expect(tx.balanceChanges).toHaveLength(3);
@@ -86,67 +93,38 @@ describe('parseBitvavoTrade', () => {
 
   it('generates unique signatures for same-timestamp trades', () => {
     const entry1: BitvavoHistoryEntry = {
-      timestamp: 1700000000000,
-      symbol: 'BTC',
-      amount: '0.5',
-      side: 'buy',
-      price: '40000',
-      taker: true,
-      fee: '20',
-      feeCurrency: 'EUR',
-      settled: true,
+      transactionId: 'tx-btc-1',
+      executedAt: new Date(1700000000000).toISOString(),
+      type: 'buy',
+      priceCurrency: 'EUR',
+      priceAmount: '40000',
+      sentCurrency: 'EUR',
+      sentAmount: '20000',
+      receivedCurrency: 'BTC',
+      receivedAmount: '0.5',
+      feesCurrency: 'EUR',
+      feesAmount: '20',
+      address: '',
     };
     const entry2: BitvavoHistoryEntry = {
-      ...entry1,
-      symbol: 'ETH',
-      amount: '10',
-      price: '2000',
+      transactionId: 'tx-eth-2',
+      executedAt: new Date(1700000000000).toISOString(),
+      type: 'buy',
+      priceCurrency: 'EUR',
+      priceAmount: '2000',
+      sentCurrency: 'EUR',
+      sentAmount: '20000',
+      receivedCurrency: 'ETH',
+      receivedAmount: '10',
+      feesCurrency: 'EUR',
+      feesAmount: '20',
+      address: '',
     };
     const tx1 = parseBitvavoTrade(entry1);
     const tx2 = parseBitvavoTrade(entry2);
     expect(tx1.signature).not.toBe(tx2.signature);
     expect(tx1.signature).toMatch(/^bitvavo-trade-/);
     expect(tx2.signature).toMatch(/^bitvavo-trade-/);
-  });
-});
-
-describe('parseBitvavoDeposit', () => {
-  it('creates TRANSFER_IN with positive balance change and counterparty', () => {
-    const entry: BitvavoTransferEntry = {
-      timestamp: 1700000000000,
-      symbol: 'BTC',
-      amount: '0.5',
-      address: '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa',
-      fee: '0',
-      status: 'completed',
-    };
-    const tx = parseBitvavoDeposit(entry);
-    expect(tx.taxCategory).toBe('TRANSFER_IN');
-    expect(tx.blockTime).toBe(1700000000);
-    expect(tx.counterparty).toBe('1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa');
-    expect(tx.balanceChanges).toHaveLength(1);
-    expect(tx.balanceChanges[0].amount).toBe(0.5);
-    expect(tx.balanceChanges[0].mint).toBe('BTC');
-  });
-});
-
-describe('parseBitvavoWithdrawal', () => {
-  it('creates TRANSFER_OUT with negative balance change including fee', () => {
-    const entry: BitvavoTransferEntry = {
-      timestamp: 1700000000000,
-      symbol: 'BTC',
-      amount: '0.5',
-      address: '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa',
-      fee: '0.0005',
-      status: 'completed',
-    };
-    const tx = parseBitvavoWithdrawal(entry);
-    expect(tx.taxCategory).toBe('TRANSFER_OUT');
-    expect(tx.blockTime).toBe(1700000000);
-    expect(tx.counterparty).toBe('1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa');
-    expect(tx.balanceChanges).toHaveLength(1);
-    // -(0.5 + 0.0005) = -0.5005
-    expect(tx.balanceChanges[0].amount).toBeCloseTo(-0.5005, 8);
   });
 });
 
@@ -191,15 +169,18 @@ describe('parseBitvavoBalances', () => {
 describe('interpretedFlow', () => {
   it('trade transactions have interpretedFlow set', () => {
     const entry: BitvavoHistoryEntry = {
-      timestamp: 1700000000000,
-      symbol: 'BTC',
-      amount: '1',
-      side: 'buy',
-      price: '30000',
-      taker: true,
-      fee: '10',
-      feeCurrency: 'EUR',
-      settled: true,
+      transactionId: 'test-interpreted',
+      executedAt: new Date(1700000000000).toISOString(),
+      type: 'buy',
+      priceCurrency: 'EUR',
+      priceAmount: '30000',
+      sentCurrency: 'EUR',
+      sentAmount: '30000',
+      receivedCurrency: 'BTC',
+      receivedAmount: '1',
+      feesCurrency: 'EUR',
+      feesAmount: '10',
+      address: '',
     };
     const tx = parseBitvavoTrade(entry);
     expect(tx.interpretedFlow).toBeDefined();

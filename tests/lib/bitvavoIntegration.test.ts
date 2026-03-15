@@ -1,24 +1,23 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  parseBitvavoTrade,
-  parseBitvavoDeposit,
-  parseBitvavoWithdrawal,
-} from '../../src/lib/bitvavoParser';
+import { parseBitvavoTrade, } from '../../src/lib/bitvavoParser';
 import { interpretTransaction } from '../../src/lib/taxCategorizer';
 import type { BitvavoHistoryEntry, BitvavoTransferEntry } from '../../src/lib/bitvavo';
 
 describe('interpretTransaction compatibility', () => {
   it('buy trade produces correct netChanges', () => {
     const entry: BitvavoHistoryEntry = {
-      timestamp: 1700000000000,
-      symbol: 'SOL',
-      amount: '10',
-      side: 'buy',
-      price: '50',
-      taker: true,
-      fee: '1',
-      feeCurrency: 'EUR',
-      settled: true,
+      transactionId: 'tx-buy-sol',
+      executedAt: new Date(1700000000000).toISOString(),
+      type: 'buy',
+      priceCurrency: 'EUR',
+      priceAmount: '50',
+      sentCurrency: 'EUR',
+      sentAmount: '500', // 10 * 50, fee folds in
+      receivedCurrency: 'SOL',
+      receivedAmount: '10',
+      feesCurrency: 'EUR',
+      feesAmount: '1',
+      address: '',
     };
     const tx = parseBitvavoTrade(entry);
     const flow = interpretTransaction(tx.balanceChanges);
@@ -33,15 +32,18 @@ describe('interpretTransaction compatibility', () => {
 
   it('sell trade produces correct netChanges', () => {
     const entry: BitvavoHistoryEntry = {
-      timestamp: 1700000000000,
-      symbol: 'BTC',
-      amount: '0.1',
-      side: 'sell',
-      price: '50000',
-      taker: true,
-      fee: '5',
-      feeCurrency: 'EUR',
-      settled: true,
+      transactionId: 'tx-sell-btc',
+      executedAt: new Date(1700000000000).toISOString(),
+      type: 'sell',
+      priceCurrency: 'EUR',
+      priceAmount: '50000',
+      sentCurrency: 'BTC',
+      sentAmount: '0.1',
+      receivedCurrency: 'EUR',
+      receivedAmount: '4995', // net: 0.1 * 50000 - 5
+      feesCurrency: 'EUR',
+      feesAmount: '0',
+      address: '',
     };
     const tx = parseBitvavoTrade(entry);
     const flow = interpretTransaction(tx.balanceChanges);
@@ -56,37 +58,46 @@ describe('snapshot replay', () => {
   it('sequence of trades produces expected final balances', () => {
     const trades: BitvavoHistoryEntry[] = [
       {
-        timestamp: 1700000000000,
-        symbol: 'BTC',
-        amount: '1',
-        side: 'buy',
-        price: '30000',
-        taker: true,
-        fee: '30',
-        feeCurrency: 'EUR',
-        settled: true,
+        transactionId: 'tx-1',
+        executedAt: new Date(1700000000000).toISOString(),
+        type: 'buy',
+        priceCurrency: 'EUR',
+        priceAmount: '30000',
+        sentCurrency: 'EUR',
+        sentAmount: '30000', // fee folds in
+        receivedCurrency: 'BTC',
+        receivedAmount: '1',
+        feesCurrency: 'EUR',
+        feesAmount: '30',
+        address: '',
       },
       {
-        timestamp: 1700001000000,
-        symbol: 'BTC',
-        amount: '0.5',
-        side: 'sell',
-        price: '35000',
-        taker: true,
-        fee: '17.5',
-        feeCurrency: 'EUR',
-        settled: true,
+        transactionId: 'tx-2',
+        executedAt: new Date(1700001000000).toISOString(),
+        type: 'sell',
+        priceCurrency: 'EUR',
+        priceAmount: '35000',
+        sentCurrency: 'BTC',
+        sentAmount: '0.5',
+        receivedCurrency: 'EUR',
+        receivedAmount: '17482.5', // net: 0.5 * 35000 - 17.5
+        feesCurrency: 'EUR',
+        feesAmount: '0',
+        address: '',
       },
       {
-        timestamp: 1700002000000,
-        symbol: 'ETH',
-        amount: '10',
-        side: 'buy',
-        price: '2000',
-        taker: true,
-        fee: '20',
-        feeCurrency: 'EUR',
-        settled: true,
+        transactionId: 'tx-3',
+        executedAt: new Date(1700002000000).toISOString(),
+        type: 'buy',
+        priceCurrency: 'EUR',
+        priceAmount: '2000',
+        sentCurrency: 'EUR',
+        sentAmount: '20000', // fee folds in
+        receivedCurrency: 'ETH',
+        receivedAmount: '10',
+        feesCurrency: 'EUR',
+        feesAmount: '20',
+        address: '',
       },
     ];
 
@@ -109,76 +120,25 @@ describe('snapshot replay', () => {
     expect(balances.get('EUR')).toBeCloseTo(-32567.5, 2);
   });
 
-  it('deposits and withdrawals replay correctly', () => {
-    const deposit: BitvavoTransferEntry = {
-      timestamp: 1700000000000,
-      symbol: 'EUR',
-      amount: '5000',
-      address: '',
-      fee: '0',
-      status: 'completed',
-    };
-    const withdrawal: BitvavoTransferEntry = {
-      timestamp: 1700001000000,
-      symbol: 'EUR',
-      amount: '1000',
-      address: 'NL00BANK0123456789',
-      fee: '0',
-      status: 'completed',
-    };
+  describe('categorize compatibility', () => {
+    it('trade transactions are categorized as TRADE', () => {
+      const entry: BitvavoHistoryEntry = {
+        transactionId: 'tx-cat-trade',
+        executedAt: new Date(1700000000000).toISOString(),
+        type: 'buy',
+        priceCurrency: 'EUR',
+        priceAmount: '30000',
+        sentCurrency: 'EUR',
+        sentAmount: '30000',
+        receivedCurrency: 'BTC',
+        receivedAmount: '1',
+        feesCurrency: 'EUR',
+        feesAmount: '30',
+        address: '',
+      };
+      const tx = parseBitvavoTrade(entry);
+      expect(tx.taxCategory).toBe('TRADE');
+    });
 
-    const balances = new Map<string, number>();
-    const dtx = parseBitvavoDeposit(deposit);
-    const wtx = parseBitvavoWithdrawal(withdrawal);
-    for (const bc of [...dtx.balanceChanges, ...wtx.balanceChanges]) {
-      balances.set(bc.mint, (balances.get(bc.mint) ?? 0) + bc.amount);
-    }
-
-    // 5000 - 1000 = 4000
-    expect(balances.get('EUR')).toBeCloseTo(4000, 2);
   });
-});
-
-describe('categorize compatibility', () => {
-  it('trade transactions are categorized as TRADE', () => {
-    const entry: BitvavoHistoryEntry = {
-      timestamp: 1700000000000,
-      symbol: 'BTC',
-      amount: '1',
-      side: 'buy',
-      price: '30000',
-      taker: true,
-      fee: '30',
-      feeCurrency: 'EUR',
-      settled: true,
-    };
-    const tx = parseBitvavoTrade(entry);
-    expect(tx.taxCategory).toBe('TRADE');
-  });
-
-  it('deposits are categorized as TRANSFER_IN', () => {
-    const entry: BitvavoTransferEntry = {
-      timestamp: 1700000000000,
-      symbol: 'EUR',
-      amount: '1000',
-      address: '',
-      fee: '0',
-      status: 'completed',
-    };
-    const tx = parseBitvavoDeposit(entry);
-    expect(tx.taxCategory).toBe('TRANSFER_IN');
-  });
-
-  it('withdrawals are categorized as TRANSFER_OUT', () => {
-    const entry: BitvavoTransferEntry = {
-      timestamp: 1700000000000,
-      symbol: 'BTC',
-      amount: '0.5',
-      address: '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa',
-      fee: '0.0005',
-      status: 'completed',
-    };
-    const tx = parseBitvavoWithdrawal(entry);
-    expect(tx.taxCategory).toBe('TRANSFER_OUT');
-  });
-});
+})
