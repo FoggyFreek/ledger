@@ -46,8 +46,11 @@ SERVER_PORT=3001          # optional, defaults to 3001
 BITVAVO_KEY=your_api_key
 BITVAVO_SECRET=your_api_secret
 
-# Optional — CoinGecko demo key (higher rate limit)
-COINGECKO_API_KEY=your_key
+# API integrations for price info and transactional history
+HELIUS_API_KEY=your_helius_api_key
+COINGECKO_API_KEY=your_coingecko_api_key
+BITVAVO_KEY=your_bitvavo_api_key
+BITVAVO_SECRET=your_bitvavo_api_secret
 ```
 
 Start the API server (creates all tables on first run):
