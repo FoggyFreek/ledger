@@ -49,8 +49,6 @@ BITVAVO_SECRET=your_api_secret
 # API integrations for price info and transactional history
 HELIUS_API_KEY=your_helius_api_key
 COINGECKO_API_KEY=your_coingecko_api_key
-BITVAVO_KEY=your_bitvavo_api_key
-BITVAVO_SECRET=your_bitvavo_api_secret
 ```
 
 Start the API server (creates all tables on first run):
