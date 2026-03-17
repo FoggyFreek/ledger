@@ -242,6 +242,11 @@ export function getCachedTokenInfo(mint: string): TokenMeta | null {
   return _tokenRegistry.get(mint) ?? null;
 }
 
+export function getAllCachedTokenMetas(): Map<string, TokenMeta> {
+  return new Map(_tokenRegistry);
+}
+
+
 const TOKEN_REGISTRY_MAX = 10_000;
 
 function registerToken(mint: string, meta: TokenMeta) {

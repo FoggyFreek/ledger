@@ -18,7 +18,7 @@ import type { TokenMeta } from '../lib/helius';
 import { isSolMint, stakingRewardsToTransactions } from '../lib/taxCategorizer';
 import { summarizeTx } from '../lib/txSummary';
 import { clearStakingData, loadGroupMemberships } from '../lib/storage';
-import { isBitvavoWallet } from '../lib/walletType';
+
 import { BITVAVO_TOKEN_META } from '../lib/bitvavoParser';
 import type { TaxCategory } from '../types/transaction';
 import type { GroupMemberships } from '../types/groups';

@@ -35,7 +35,7 @@ export function useStaking(address: string | null) {
   }, [address]);
 
   // Full refresh: native stake accounts + SKR + rewards (used for initial/forced reload)
-  const refresh = useCallback(async (force = false) => {
+  const refresh = useCallback(async (_force = false) => {
     if (!address) return;
 
     // Check stored data first and use if recent enough to avoid unnecessary RPC calls

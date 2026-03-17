@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { AddressDisplay } from '../shared/AddressDisplay';
 import { resolveSymbol } from '../../lib/txSummary';
@@ -53,6 +54,40 @@ function RentRow({ item }: { item: RentItem }) {
   );
 }
 
+function TradeRate({ changes, tokenMetas }: { changes: BalanceChange[]; tokenMetas: Map<string, TokenMeta> }) {
+  const [swapped, setSwapped] = useState(false);
+  const sold = changes.filter(bc => bc.amount < 0);
+  const bought = changes.filter(bc => bc.amount > 0);
+  if (sold.length === 0 || bought.length === 0) return null;
+
+  const outgoing = sold[0];
+  const incoming = bought[0];
+  const outSym = resolveSymbol(outgoing.mint, tokenMetas);
+  const inSym = resolveSymbol(incoming.mint, tokenMetas);
+  const outAmt = Math.abs(outgoing.amount);
+  const inAmt = Math.abs(incoming.amount);
+
+  const ratio = swapped
+    ? (outAmt / inAmt).toFixed(4)
+    : (inAmt / outAmt).toFixed(4);
+  const label = swapped
+    ? `(1 ${inSym} = ${ratio} ${outSym})`
+    : `(1 ${outSym} = ${ratio} ${inSym})`;
+
+  return (
+    <div className="flex items-center gap-1 text-gray-500 text-xs">
+      <span>{label}</span>
+      <button
+        onClick={() => setSwapped(s => !s)}
+        className="text-gray-600 hover:text-gray-300 transition-colors px-0.5"
+        title="Flip rate"
+      >
+        ⇄
+      </button>
+    </div>
+  );
+}
+
 interface Props {
   tx: ParsedTransaction;
   tokenMetas: Map<string, TokenMeta>;
@@ -65,9 +100,6 @@ export function TxDetail({ tx, tokenMetas, walletAddress, walletOnly }: Props) {
   const filteredChanges = walletOnly
     ? netChanges.filter(bc => !bc.userAccount || bc.userAccount === walletAddress)
     : netChanges;
-
-  // suppress unused-import warning
-  void resolveSymbol;
 
   const footer = (
     <div className="flex items-center gap-4 text-gray-600 pt-1">
@@ -95,6 +127,7 @@ export function TxDetail({ tx, tokenMetas, walletAddress, walletOnly }: Props) {
           <div>
             <p className="text-gray-500 mb-1">Movements</p>
             {filteredChanges.map((bc, i) => <ChangeRow key={i} bc={bc} tokenMetas={tokenMetas} />)}
+            <TradeRate changes={filteredChanges} tokenMetas={tokenMetas} />
           </div>
         )}
         {(rentItems.length > 0) && (

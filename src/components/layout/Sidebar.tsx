@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Wallet, Trash2, Settings, LayoutDashboard, ArrowLeftRight, Camera, FolderOpen } from 'lucide-react';
+import { Plus, Wallet, Trash2, Settings, LayoutDashboard, ArrowLeftRight, Camera, FolderOpen, GitBranch } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { AddWalletModal } from '../wallets/AddWalletModal';
 import { SettingsModal } from '../settings/SettingsModal';
@@ -57,6 +57,7 @@ export function Sidebar({ activePage, onPageChange }: Props) {
     { id: 'transactions', label: 'Transactions', icon: ArrowLeftRight },
     { id: 'snapshots', label: 'Snapshots', icon: Camera },
     { id: 'groups', label: 'Groups', icon: FolderOpen },
+    { id: 'timeline', label: 'Timeline', icon: GitBranch },
   ];
 
   return (

@@ -10,7 +10,7 @@ import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { AddressDisplay } from '../components/shared/AddressDisplay';
 import { Toast } from '../components/shared/Toast';
 import { SKR_RAW_TO_UI } from '../lib/helius';
-import { isBitvavoWallet } from '../lib/walletType';
+
 import type { StakeAccount, SeekerStakeAccount, WalletHoldings } from '../types/wallet';
 
 const SKR_MINT = 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3';

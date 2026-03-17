@@ -190,7 +190,6 @@ describe('parseWalletHistoryTx — wallet-only filtering', () => {
       signature: '25jrC7YqhHvuWLgPgpcR9HuGskgL2Xnb48FA44qR3wHidEYEEntPkzWEbSxNUox5HE5akVCRh6k3MbxGyhH4uyuJ',
       fee: 58205,
       type: 'SWAP',
-      source: 'JUPITER',
       tokenTransfers: [
         // Hop 1: wallet sends 100 SKR
         { fromUserAccount: WALLET, toUserAccount: '7iWnBRRhBCiNXXPhqiGzvvBkKrvFSWqqmxRyu9VyYBxE', fromTokenAccount: '6b4h', toTokenAccount: '5uZ1', tokenAmount: 100, mint: SKR, tokenStandard: 'Fungible' },

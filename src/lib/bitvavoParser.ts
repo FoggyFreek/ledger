@@ -37,7 +37,7 @@ function formatAmt(amount: number, symbol: string): string {
   return `${Math.abs(amount).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${symbol}`;
 }
 
-function describeBitvavoEntry(type: string, taxCategory: TaxCategory, balanceChanges: BalanceChange[], address: string): string {
+function describeBitvavoEntry(_type: string, taxCategory: TaxCategory, balanceChanges: BalanceChange[], address: string): string {
   if (taxCategory === 'TRADE') {
     const sold = balanceChanges.filter(bc => bc.amount < 0);
     const bought = balanceChanges.filter(bc => bc.amount > 0);
@@ -129,7 +129,7 @@ export function parseBitvavoTrade(entry: BitvavoHistoryEntry): ParsedTransaction
     description: describeBitvavoEntry(entry.type, taxCategory, balanceChanges, entry.address),
     balanceChanges,
     err: null,
-    counterparty: null,
+    counterparty: entry.address || null,
     interpretedFlow: interpretTransaction(balanceChanges),
   };
 }
