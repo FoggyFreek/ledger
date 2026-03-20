@@ -8,6 +8,7 @@ export type TaxCategory =
   | 'AIRDROP'
   | 'BURN'
   | 'FEE'
+  | 'BURN'
   | 'OTHER'
   | 'STAKE_DELEGATE'
   | 'STAKE_DEACTIVATE'

@@ -51,6 +51,9 @@ export function TransactionsPage() {
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
   const [filterToken, setFilterToken] = useState('');
+  const [filterDirection, setFilterDirection] = useState<'ALL' | 'POSITIVE' | 'NEGATIVE'>('ALL');
+  const [filterAmountFrom, setFilterAmountFrom] = useState('');
+  const [filterAmountTo, setFilterAmountTo] = useState('');
   const [walletOnly, setWalletOnly] = useState(true);
   const [hideDust, setHideDust] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
@@ -116,22 +119,34 @@ export function TransactionsPage() {
     if (filterCategory !== 'ALL' && tx.taxCategory !== filterCategory) return false;
     if (filterDateFrom && tx.blockTime < new Date(filterDateFrom).getTime() / 1000) return false;
     if (filterDateTo && tx.blockTime > new Date(filterDateTo).getTime() / 1000 + 86400) return false;
-    if (filterToken) {
+    if (filterToken || filterDirection !== 'ALL' || filterAmountFrom !== '' || filterAmountTo !== '') {
       const q = filterToken.toLowerCase();
-      const match = tx.balanceChanges.some(bc => {
-        if (isBitvavo) {
-          return bc.mint.toLowerCase().includes(q);
-        }
+      const amtFrom = filterAmountFrom !== '' ? parseFloat(filterAmountFrom) : null;
+      const amtTo = filterAmountTo !== '' ? parseFloat(filterAmountTo) : null;
+      const matchesToken = (bc: { mint: string }) => {
+        if (!filterToken) return true;
+        if (isBitvavo) return bc.mint.toLowerCase().includes(q);
         if (isSolMint(bc.mint)) return 'sol'.includes(q) || 'solana'.includes(q);
         const meta = tokenMetas.get(bc.mint);
         return (meta?.symbol?.toLowerCase().includes(q) ?? false)
           || (meta?.name?.toLowerCase().includes(q) ?? false)
           || bc.mint.toLowerCase().startsWith(q);
-      });
-      if (!match) return false;
+      };
+      const matchesDirection = (bc: { amount: number }) => {
+        if (filterDirection === 'POSITIVE') return bc.amount > 0;
+        if (filterDirection === 'NEGATIVE') return bc.amount < 0;
+        return true;
+      };
+      const matchesAmount = (bc: { amount: number }) => {
+        const abs = Math.abs(bc.amount);
+        if (amtFrom !== null && abs < amtFrom) return false;
+        if (amtTo !== null && abs > amtTo) return false;
+        return true;
+      };
+      if (!tx.balanceChanges.some(bc => matchesToken(bc) && matchesDirection(bc) && matchesAmount(bc))) return false;
     }
     return true;
-  }), [allTxns, hideDust, filterCategory, filterDateFrom, filterDateTo, filterToken, tokenMetas, isBitvavo]);
+  }), [allTxns, hideDust, filterCategory, filterDateFrom, filterDateTo, filterToken, filterDirection, filterAmountFrom, filterAmountTo, tokenMetas, isBitvavo]);
 
   if (!activeAddress) {
     return <div className="text-gray-500 text-center py-20">Select a wallet first</div>;
@@ -226,6 +241,40 @@ export function TransactionsPage() {
             />
           </div>
           <div>
+            <label className="text-xs text-gray-500 block mb-1">Direction</label>
+            <select
+              value={filterDirection}
+              onChange={e => { setFilterDirection(e.target.value as 'ALL' | 'POSITIVE' | 'NEGATIVE'); setPage(1); }}
+              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
+            >
+              <option value="ALL">All</option>
+              <option value="POSITIVE">Positive (+)</option>
+              <option value="NEGATIVE">Negative (−)</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Amount from</label>
+            <input
+              type="number"
+              min="0"
+              placeholder="0"
+              value={filterAmountFrom}
+              onChange={e => { setFilterAmountFrom(e.target.value); setPage(1); }}
+              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white placeholder-gray-600 w-28 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Amount to</label>
+            <input
+              type="number"
+              min="0"
+              placeholder="∞"
+              value={filterAmountTo}
+              onChange={e => { setFilterAmountTo(e.target.value); setPage(1); }}
+              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white placeholder-gray-600 w-28 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+          </div>
+          <div>
             <label className="text-xs text-gray-500 block mb-1">From Date</label>
             <input
               type="date"
@@ -267,7 +316,7 @@ export function TransactionsPage() {
           </div>
           <div className="flex items-end">
             <button
-              onClick={() => { setFilterCategory('ALL'); setFilterDateFrom(''); setFilterDateTo(''); setFilterToken(''); setWalletOnly(true); setHideDust(true); setPage(1); }}
+              onClick={() => { setFilterCategory('ALL'); setFilterDateFrom(''); setFilterDateTo(''); setFilterToken(''); setFilterDirection('ALL'); setFilterAmountFrom(''); setFilterAmountTo(''); setWalletOnly(true); setHideDust(true); setPage(1); }}
               className="text-xs text-gray-400 hover:text-white"
             >
               Clear

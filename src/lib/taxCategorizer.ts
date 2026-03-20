@@ -119,6 +119,19 @@ export function stakingRewardsToTransactions(rewards: StakingReward[]): ParsedTr
   });
 }
 
+export const HELIUS_TYPE_CATEGORY: Partial<Record<string, TaxCategory>> = {
+  SWAP:                        'TRADE',
+  TOKEN_MINT:                  'TRADE',
+  BURN:                        'BURN',
+  OPEN_POSITION:               'TRADE',
+  WITHDRAW:                    'TRANSFER_IN',
+  WITHDRAW_UNSTAKED_DEPOSITS:  'TRANSFER_IN',
+  STAKE_SOL:                   'STAKE_DELEGATE',
+  UNSTAKE_SOL:                 'STAKE_WITHDRAW',
+  HARVEST_REWARD:              'STAKE_WITHDRAW',
+  CONSUME_EVENTS:              'FEE',
+};
+
 export function parseWalletHistoryTx(tx: HeliusWalletHistoryTx, walletAddress?: string): ParsedTransaction {
   const balanceChanges: BalanceChange[] = [];
   for (const entry of tx.accountData) {
@@ -172,6 +185,10 @@ export function parseWalletHistoryTx(tx: HeliusWalletHistoryTx, walletAddress?: 
 
   // Run categorize on netChanges so wrap/unwrap noise doesn't cause mislabeling
   let taxCategory: TaxCategory = categorize(interpretedFlow.netChanges);
+
+  // Override with helius_type mapping when available (TRANSFER excluded — needs direction check)
+  const heliusMapped = tx.type ? HELIUS_TYPE_CATEGORY[tx.type] : undefined;
+  if (heliusMapped !== undefined) taxCategory = heliusMapped;
 
   // Detect Seeker (SKR) staking via token transfer counterparty
   const seekerTransfer = tx.tokenTransfers?.find(t => t.mint === SKR_MINT && (

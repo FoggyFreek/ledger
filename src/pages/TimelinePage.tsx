@@ -1,11 +1,20 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { TaxCategory, ParsedTransaction } from '../types/transaction';
+import type { TimelineGroup, TransactionGroup } from '../types/groups';
 import { useApp } from '../context/AppContext';
 import { useAllWalletTransactions } from '../hooks/useAllWalletTransactions';
 import { TimelineCanvas } from '../components/timeline/TimelineCanvas';
 import { getAllCachedTokenMetas, getCachedTokenInfo } from '../lib/helius';
 import { ALL_CATEGORIES, CATEGORY_SHORT_LABEL, CATEGORY_COLOR } from '../lib/categoryMeta';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
+import { loadGroups, loadGroupMembers } from '../lib/storage';
+import { groupMemberToTransaction } from '../lib/groups';
+
+interface AvailableGroup {
+  walletAddress: string;
+  walletLabel: string;
+  group: TransactionGroup;
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export function TimelinePage() {
@@ -43,6 +52,60 @@ export function TimelinePage() {
 
   const tokenMetas = useMemo(() => getAllCachedTokenMetas(), []);
 
+  // ── Groups ──────────────────────────────────────────────────────────────────
+  const [allGroups, setAllGroups] = useState<AvailableGroup[]>([]);
+  const [timelineGroups, setTimelineGroups] = useState<TimelineGroup[]>([]);
+  const [hiddenGroups, setHiddenGroups] = useState<Set<number>>(new Set());
+
+  // Load all groups from all wallets on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const results: AvailableGroup[] = [];
+      for (const w of wallets) {
+        const groups = await loadGroups(w.address);
+        for (const g of groups) {
+          results.push({ walletAddress: w.address, walletLabel: w.label || w.address.slice(0, 8), group: g });
+        }
+      }
+      if (!cancelled) setAllGroups(results);
+    })();
+    return () => { cancelled = true; };
+  }, [wallets]);
+
+  const addedGroupIds = useMemo(() => new Set(timelineGroups.map(g => g.id)), [timelineGroups]);
+
+  const handleAddGroup = async (ag: AvailableGroup) => {
+    const members = await loadGroupMembers(ag.walletAddress, ag.group.id);
+    const txns = members.map(groupMemberToTransaction);
+    setTimelineGroups(prev => [...prev, {
+      id: ag.group.id,
+      name: ag.group.name,
+      walletAddress: ag.walletAddress,
+      walletLabel: ag.walletLabel,
+      transactions: txns,
+    }]);
+  };
+
+  const handleRemoveGroup = (groupId: number) => {
+    setTimelineGroups(prev => prev.filter(g => g.id !== groupId));
+    setHiddenGroups(prev => { const next = new Set(prev); next.delete(groupId); return next; });
+  };
+
+  const toggleGroup = (groupId: number) => {
+    setHiddenGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
+
+  const visibleGroups = useMemo(
+    () => new Set(timelineGroups.map(g => g.id).filter(id => !hiddenGroups.has(id))),
+    [timelineGroups, hiddenGroups],
+  );
+
   // Apply filters
   const filteredTransactions = useMemo(() => {
     const mintQ = mintFilter.trim().toLowerCase();
@@ -72,10 +135,36 @@ export function TimelinePage() {
     return result;
   }, [transactions, hiddenCategories, mintFilter]);
 
+  // Apply same filters to group transactions
+  const filteredGroups = useMemo((): TimelineGroup[] => {
+    const mintQ = mintFilter.trim().toLowerCase();
+    const filteringCategories = hiddenCategories.size > 0;
+    const filteringMint = mintQ.length > 0;
+
+    if (!filteringCategories && !filteringMint) return timelineGroups;
+
+    return timelineGroups.map(g => ({
+      ...g,
+      transactions: g.transactions.filter(tx => {
+        if (filteringCategories && hiddenCategories.has(tx.taxCategory)) return false;
+        if (filteringMint) {
+          const matches = tx.balanceChanges.some(bc => {
+            if (bc.mint.toLowerCase().includes(mintQ)) return true;
+            const meta = getCachedTokenInfo(bc.mint);
+            return (meta?.symbol.toLowerCase().includes(mintQ) ||
+                    meta?.name.toLowerCase().includes(mintQ)) ?? false;
+          });
+          if (!matches) return false;
+        }
+        return true;
+      }),
+    }));
+  }, [timelineGroups, hiddenCategories, mintFilter]);
+
   return (
     <div className="flex flex-col h-full">
 
-      {/* Filters: type / token */}
+      {/* Filters: type / token / groups */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-800 bg-gray-950 shrink-0 flex-wrap">
 
         {/* Category chips */}
@@ -127,6 +216,28 @@ export function TimelinePage() {
           )}
         </div>
 
+        <div className="w-px h-4 bg-gray-700 mx-1 shrink-0" />
+
+        {/* Group picker */}
+        <span className="text-xs text-gray-500 uppercase tracking-wider shrink-0">Group</span>
+        <select
+          className="bg-gray-800 border border-gray-700 text-xs text-gray-200 rounded px-2 py-0.5 focus:outline-none focus:border-gray-500"
+          value=""
+          onChange={e => {
+            const idx = parseInt(e.target.value);
+            if (!isNaN(idx)) handleAddGroup(allGroups[idx]);
+          }}
+        >
+          <option value="">+ Add group…</option>
+          {allGroups.map((ag, i) =>
+            addedGroupIds.has(ag.group.id) ? null : (
+              <option key={ag.group.id} value={i}>
+                {ag.walletLabel} — {ag.group.name} ({ag.group.txCount} txns)
+              </option>
+            ),
+          )}
+        </select>
+
         {loading && (
           <span className="ml-auto flex items-center gap-1.5 text-xs text-gray-500">
             <LoadingSpinner size={14} /> Loading…
@@ -152,6 +263,10 @@ export function TimelinePage() {
           tokenMetas={tokenMetas}
           visibleWallets={visibleWallets}
           onToggleWallet={toggleWallet}
+          groups={filteredGroups}
+          visibleGroups={visibleGroups}
+          onToggleGroup={toggleGroup}
+          onRemoveGroup={handleRemoveGroup}
         />
       )}
     </div>

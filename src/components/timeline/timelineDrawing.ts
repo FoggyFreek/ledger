@@ -206,10 +206,7 @@ export function drawTransferLines(
     const bot = Math.max(fromRowY, toRowY);
     const goingDown = toRowY > fromRowY;
 
-    const grad = ctx.createLinearGradient(x, fromRowY, x, toRowY);
-    grad.addColorStop(0, '#f9741680');
-    grad.addColorStop(1, '#22c55e80');
-    ctx.strokeStyle = grad;
+    ctx.strokeStyle = '#22c55e80';
     ctx.lineWidth = 1.5;
     ctx.setLineDash([5, 4]);
     ctx.beginPath();

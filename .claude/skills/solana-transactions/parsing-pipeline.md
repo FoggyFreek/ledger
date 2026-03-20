@@ -65,8 +65,27 @@ Inputs: netChanges after merging SOL/WSOL and dropping dust
 7. Otherwise → OTHER
 ```
 
+### Helius type override (HELIUS_TYPE_CATEGORY)
+After `categorize()`, if `tx.type` maps to a known category in `HELIUS_TYPE_CATEGORY`, that category wins:
+
+| Helius type | Mapped category |
+|---|---|
+| `SWAP` | `TRADE` |
+| `TOKEN_MINT` | `TRADE` |
+| `BURN` | `TRADE` |
+| `OPEN_POSITION` | `TRADE` |
+| `WITHDRAW` | `TRANSFER_IN` |
+| `WITHDRAW_UNSTAKED_DEPOSITS` | `TRANSFER_IN` |
+| `STAKE_SOL` | `STAKE_DELEGATE` |
+| `UNSTAKE_SOL` | `STAKE_WITHDRAW` |
+| `HARVEST_REWARD` | `STAKE_WITHDRAW` |
+| `INITIALIZE_ACCOUNT` | `FEE` |
+| `CONSUME_EVENTS` | `FEE` |
+
+`TRANSFER` is intentionally absent from the map — its direction (IN vs OUT) must be resolved via balance changes, not from the Helius type alone.
+
 ### Seeker (SKR) staking override
-After `categorize()`, checks `tx.tokenTransfers` for SKR token transfers involving the Seeker staking config (`4HQy82s9CHTv1GsYKnANHMiHfhcqesYkK6sB3RDSYyqw`):
+After the Helius type override, checks `tx.tokenTransfers` for SKR token transfers involving the Seeker staking config (`4HQy82s9CHTv1GsYKnANHMiHfhcqesYkK6sB3RDSYyqw`):
 - `toUserAccount === config` → override to `STAKE_DELEGATE`
 - `fromUserAccount === config` → override to `STAKE_WITHDRAW`
 

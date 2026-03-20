@@ -1,7 +1,8 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, X } from 'lucide-react';
 import type { WalletEntry } from '../../types/wallet';
 import type { ParsedTransaction } from '../../types/transaction';
+import type { TimelineGroup } from '../../types/groups';
 import type { TokenMeta } from '../../lib/helius';
 import { getCachedTokenInfo } from '../../lib/helius';
 import { TxDetail } from '../transactions/TxDetail';
@@ -50,11 +51,18 @@ interface Props {
   tokenMetas: Map<string, TokenMeta>;
   visibleWallets: Set<string>;
   onToggleWallet: (address: string) => void;
+  groups: TimelineGroup[];
+  visibleGroups: Set<number>;
+  onToggleGroup: (groupId: number) => void;
+  onRemoveGroup: (groupId: number) => void;
 }
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
-export function TimelineCanvas({ wallets, transactions, tokenMetas, visibleWallets, onToggleWallet }: Props) {
+export function TimelineCanvas({
+  wallets, transactions, tokenMetas, visibleWallets, onToggleWallet,
+  groups, visibleGroups, onToggleGroup, onRemoveGroup,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hitRef = useRef<HitElement[]>([]);
@@ -77,30 +85,47 @@ export function TimelineCanvas({ wallets, transactions, tokenMetas, visibleWalle
     [dateStart, dateEnd, canvasWidth],
   );
 
+  const totalRows = wallets.length + groups.length;
+
   // ── Compute layout ────────────────────────────────────────────────────────
   const { clustersByRow, transferLines } = useMemo(() => {
     const walletSet = new Set(wallets.map(w => w.address));
     const walletRowMap = new Map<string, number>();
     wallets.forEach((w, i) => walletRowMap.set(w.address, i));
-    const totalRows = wallets.length;
 
-    // Place events
+    // Place events — wallets
     const allPlaced: PlacedEvent[] = [];
     wallets.forEach((wallet, rowIndex) => {
       if (!visibleWallets.has(wallet.address)) return;
       const rowY = rowIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
       for (const tx of transactions[wallet.address] ?? []) {
         if (tx.blockTime < dateStart || tx.blockTime > dateEnd) continue;
+        if (tx.taxCategory === 'TRANSFER_IN') {
+          const total = tx.balanceChanges.reduce((s, bc) => s + Math.abs(bc.amount), 0);
+          if (total <= 1e-7) continue;
+        }
         const x = LABEL_WIDTH + ((tx.blockTime - dateStart) / (dateEnd - dateStart)) * (canvasWidth - LABEL_WIDTH);
         allPlaced.push({ x, y: rowY, radius: eventRadius(tx), tx, walletAddress: wallet.address, rowIndex });
       }
     });
 
-    // Cluster per wallet row
+    // Place events — groups
+    groups.forEach((group, gi) => {
+      if (!visibleGroups.has(group.id)) return;
+      const rowIndex = wallets.length + gi;
+      const rowY = rowIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
+      for (const tx of group.transactions) {
+        if (tx.blockTime < dateStart || tx.blockTime > dateEnd) continue;
+        const x = LABEL_WIDTH + ((tx.blockTime - dateStart) / (dateEnd - dateStart)) * (canvasWidth - LABEL_WIDTH);
+        allPlaced.push({ x, y: rowY, radius: eventRadius(tx), tx, walletAddress: group.walletAddress, rowIndex });
+      }
+    });
+
+    // Cluster per row
     const clustersByRow: Cluster[][] = Array.from({ length: totalRows }, () => []);
-    wallets.forEach((_, rowIndex) => {
+    for (let rowIndex = 0; rowIndex < totalRows; rowIndex++) {
       const rowEvents = allPlaced.filter(e => e.rowIndex === rowIndex).sort((a, b) => a.x - b.x);
-      if (!rowEvents.length) return;
+      if (!rowEvents.length) continue;
       let current: PlacedEvent[] = [rowEvents[0]];
       const flush = () => {
         clustersByRow[rowIndex].push({
@@ -116,7 +141,7 @@ export function TimelineCanvas({ wallets, transactions, tokenMetas, visibleWalle
         } else { flush(); current = [rowEvents[i]]; }
       }
       flush();
-    });
+    }
 
     // Transfer lines (wallet-to-wallet only)
     const transferLines: TransferLine[] = [];
@@ -161,9 +186,9 @@ export function TimelineCanvas({ wallets, transactions, tokenMetas, visibleWalle
     });
 
     return { clustersByRow, transferLines };
-  }, [wallets, visibleWallets, transactions, dateStart, dateEnd, canvasWidth, tokenMetas]);
+  }, [wallets, visibleWallets, transactions, groups, visibleGroups, dateStart, dateEnd, canvasWidth, tokenMetas, totalRows]);
 
-  const canvasHeight = AXIS_HEIGHT + wallets.length * ROW_HEIGHT;
+  const canvasHeight = AXIS_HEIGHT + totalRows * ROW_HEIGHT;
 
   // ── Draw ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -188,6 +213,12 @@ export function TimelineCanvas({ wallets, transactions, tokenMetas, visibleWalle
       drawRow(ctx, rowIndex, canvasWidth, wallet.label || shortAddr(wallet.address), visibleWallets.has(wallet.address));
     });
 
+    // Group rows
+    groups.forEach((group, gi) => {
+      const rowIndex = wallets.length + gi;
+      drawRow(ctx, rowIndex, canvasWidth, group.name, visibleGroups.has(group.id));
+    });
+
     // Label separator
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 1;
@@ -200,7 +231,7 @@ export function TimelineCanvas({ wallets, transactions, tokenMetas, visibleWalle
     drawTransferLines(ctx, transferLines);
 
     // Events / clusters
-    for (let r = 0; r < wallets.length; r++) {
+    for (let r = 0; r < totalRows; r++) {
       for (const cluster of clustersByRow[r] ?? []) {
         const isExpanded = expandedClusters.has(cluster.id);
         if (cluster.events.length === 1) {
@@ -212,6 +243,7 @@ export function TimelineCanvas({ wallets, transactions, tokenMetas, visibleWalle
             drawEvent(ctx, ev);
             hitElements.push({ type: 'event', event: ev });
           }
+          hitElements.push({ type: 'cluster', cluster });
         } else {
           drawFoldedCluster(ctx, cluster);
           hitElements.push({ type: 'cluster', cluster });
@@ -225,7 +257,7 @@ export function TimelineCanvas({ wallets, transactions, tokenMetas, visibleWalle
     hitRef.current = hitElements;
   }, [
     dateStart, dateEnd, expandedClusters, canvasWidth, canvasHeight,
-    wallets, visibleWallets, clustersByRow, transferLines, timeToX,
+    wallets, visibleWallets, groups, visibleGroups, totalRows, clustersByRow, transferLines, timeToX,
   ]);
 
   // ── ResizeObserver ────────────────────────────────────────────────────────
@@ -318,10 +350,17 @@ export function TimelineCanvas({ wallets, transactions, tokenMetas, visibleWalle
     for (const hit of hitRef.current) {
       if (hit.type === 'cluster') {
         const { x1, x2, y } = hit.cluster;
-        const cx = (x1 + x2) / 2;
-        const pillW = Math.max(x2 - x1 + 24, 48);
-        if (mx >= cx - pillW / 2 - 6 && mx <= cx + pillW / 2 + 6 &&
-            my >= y - 24 && my <= y + 24) {
+        let inBounds: boolean;
+        if (expandedClusters.has(hit.cluster.id)) {
+          const pad = 18;
+          const bh = ROW_HEIGHT - 12;
+          inBounds = mx >= x1 - pad && mx <= x2 + pad && my >= y - bh / 2 && my <= y + bh / 2;
+        } else {
+          const cx = (x1 + x2) / 2;
+          const pillW = Math.max(x2 - x1 + 24, 48);
+          inBounds = mx >= cx - pillW / 2 - 6 && mx <= cx + pillW / 2 + 6 && my >= y - 24 && my <= y + 24;
+        }
+        if (inBounds) {
           setExpandedClusters(prev => {
             const next = new Set(prev);
             if (next.has(hit.cluster.id)) next.delete(hit.cluster.id);
@@ -364,6 +403,33 @@ export function TimelineCanvas({ wallets, transactions, tokenMetas, visibleWalle
               ? <Eye size={13} className="text-gray-400" />
               : <EyeOff size={13} className="text-gray-600" />}
           </button>
+        );
+      })}
+
+      {/* Eye + X overlays on group labels */}
+      {groups.map((group, gi) => {
+        const rowIndex = wallets.length + gi;
+        const isVisible = visibleGroups.has(group.id);
+        const top = rowIndex * ROW_HEIGHT + ROW_HEIGHT / 2 - 9;
+        return (
+          <div key={`group-${group.id}`} className="absolute flex items-center gap-0.5" style={{ top, left: LABEL_WIDTH - 42, cursor: 'pointer' }}>
+            <button
+              onClick={() => onToggleGroup(group.id)}
+              className="flex items-center justify-center w-5 h-5 rounded transition-colors hover:bg-white/10"
+              title={isVisible ? 'Hide group' : 'Show group'}
+            >
+              {isVisible
+                ? <Eye size={13} className="text-gray-400" />
+                : <EyeOff size={13} className="text-gray-600" />}
+            </button>
+            <button
+              onClick={() => onRemoveGroup(group.id)}
+              className="flex items-center justify-center w-5 h-5 rounded transition-colors hover:bg-red-900/40"
+              title="Remove group from timeline"
+            >
+              <X size={13} className="text-gray-500 hover:text-red-400" />
+            </button>
+          </div>
         );
       })}
 

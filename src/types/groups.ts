@@ -1,4 +1,4 @@
-import type { BalanceChange } from './transaction';
+import type { BalanceChange, ParsedTransaction } from './transaction';
 
 export interface TransactionGroup {
   id: number;
@@ -30,3 +30,11 @@ export interface GroupMemberInput {
 }
 
 export type GroupMemberships = Record<string, { id: number; name: string }[]>;
+
+export interface TimelineGroup {
+  id: number;
+  name: string;
+  walletAddress: string;
+  walletLabel: string;
+  transactions: ParsedTransaction[];
+}

@@ -1,7 +1,7 @@
 import { fetchHistoricalPrices } from './prices';
-import { isSolMint } from './taxCategorizer';
-import type { ParsedTransaction } from '../types/transaction';
-import type { GroupMemberInput } from '../types/groups';
+import { isSolMint, interpretTransaction } from './taxCategorizer';
+import type { ParsedTransaction, TaxCategory } from '../types/transaction';
+import type { GroupMember, GroupMemberInput } from '../types/groups';
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
@@ -58,4 +58,20 @@ export async function computeUsdValues(transactions: ParsedTransaction[]): Promi
       priceFetched: anyPrice,
     };
   });
+}
+
+export function groupMemberToTransaction(member: GroupMember): ParsedTransaction {
+  return {
+    signature: member.signature,
+    blockTime: member.blockTime,
+    slot: member.slot,
+    fee: member.fee,
+    taxCategory: member.taxCategory as TaxCategory,
+    heliusType: null,
+    description: null,
+    balanceChanges: member.balanceChanges,
+    err: member.err,
+    counterparty: member.counterparty,
+    interpretedFlow: interpretTransaction(member.balanceChanges),
+  };
 }
