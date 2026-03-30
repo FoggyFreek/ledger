@@ -16,6 +16,7 @@ export interface TokenHolding {
   rawAmount: string;
   uiAmount: number;
   usdValue: number | null;
+  eurValue?: number | null;
   logoUri: string | null;
 }
 
@@ -25,6 +26,7 @@ export interface WalletHoldings {
   fetchedAt: number;
   solBalance: number;
   solPrice: number | null;
+  solPriceEur?: number | null;
   tokens: TokenHolding[];
 }
 
@@ -37,6 +39,18 @@ export interface WalletSnapshot {
   slotApproximation: number;
   holdings: WalletHoldings;
   txCountIncluded: number;
+  stakingInfo?: {
+    totalStakedSol: number;
+    totalRewardsEarnedSol: number;
+    rewardCount: number;
+    stakeAccounts: StakeAccountSnapshot[];
+  };
+}
+
+export interface StakeAccountSnapshot {
+  pubkey: string;
+  stakedLamports: number;
+  voter: string;
 }
 
 export interface StakeAccount {

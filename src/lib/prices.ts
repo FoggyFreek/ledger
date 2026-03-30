@@ -170,6 +170,55 @@ async function fetchCoinGeckoRange(
   return res.json() as Promise<{ prices: [number, number][] }>;
 }
 
+async function fetchCoinGeckoContractRange(
+  platform: string,
+  contractAddress: string,
+  vsCurrency: 'usd' | 'eur',
+  from: number,
+  to: number
+): Promise<{ prices: [number, number][] }> {
+  const res = await fetch('/api/v1/coingecko/contract-market-chart-range', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform, contractAddress, vsCurrency, from, to }),
+  });
+  if (!res.ok) throw new Error(`CoinGecko contract proxy error: ${res.status}`);
+  return res.json() as Promise<{ prices: [number, number][] }>;
+}
+
+/**
+ * Fetch historical EUR prices for Solana tokens at a given unix timestamp
+ * directly from CoinGecko. SOL uses the "solana" coin ID; SPL tokens use the
+ * contract address lookup on the "solana" platform.
+ *
+ * Returns a Map of mint → EUR price. Mints without data are omitted.
+ */
+export async function fetchHistoricalPricesEur(
+  mints: string[],
+  targetTs: number
+): Promise<Map<string, number>> {
+  const prices = new Map<string, number>();
+  if (mints.length === 0) return prices;
+
+  const from = targetTs - 1800;
+  const to = targetTs + 1800;
+  const targetMs = targetTs * 1000;
+
+  for (const mint of [...new Set(mints)]) {
+    try {
+      const data = mint === SOL_MINT
+        ? await fetchCoinGeckoRange('solana', 'eur', from, to)
+        : await fetchCoinGeckoContractRange('solana', mint, 'eur', from, to);
+      const price = pickClosestPrice(data.prices, targetMs);
+      if (price != null) prices.set(mint, price);
+    } catch {
+      // Skip — CoinGecko may not recognise every SPL mint
+    }
+  }
+
+  return prices;
+}
+
 /**
  * Fetch historical USD and EUR prices for ticker symbols at a given unix timestamp
  * via the backend CoinGecko proxy (which handles CORS and rate limiting).

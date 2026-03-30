@@ -18,7 +18,7 @@ export function useSnapshots(address: string | null) {
     label: string,
     targetDate: Date,
     transactions: ParsedTransaction[],
-    currentHoldings: WalletHoldings | null
+    currentHoldings: WalletHoldings | null,
   ) => {
     if (!address) return;
     setCreating(true);

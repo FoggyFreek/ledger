@@ -75,6 +75,17 @@ app.put('/wallets/:addr/transactions', async (c) => {
   return c.json({ ok: true });
 });
 
+app.patch('/wallets/:addr/transactions/:sig', async (c) => {
+  const addr = c.req.param('addr');
+  const sig = c.req.param('sig');
+  const { taxCategory } = await c.req.json<{ taxCategory: string }>();
+  await sql`
+    UPDATE transactions SET tax_category = ${taxCategory}
+    WHERE wallet_address = ${addr} AND signature = ${sig}
+  `;
+  return c.json({ ok: true });
+});
+
 app.delete('/wallets/:addr/transactions', async (c) => {
   const addr = c.req.param('addr');
   await Promise.all([

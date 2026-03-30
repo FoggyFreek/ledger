@@ -69,4 +69,33 @@ app.post('/coingecko/market-chart-range', async (c) => {
   });
 });
 
+// Proxy CoinGecko contract-based market_chart/range.
+// Fetches historical prices for a token by its on-chain contract address.
+// POST body: { platform: string; contractAddress: string; vsCurrency: 'usd' | 'eur'; from: number; to: number }
+app.post('/coingecko/contract-market-chart-range', async (c) => {
+  const { platform, contractAddress, vsCurrency, from, to } = await c.req.json<{
+    platform: string;
+    contractAddress: string;
+    vsCurrency: 'usd' | 'eur';
+    from: number;
+    to: number;
+  }>();
+
+  const url = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(platform)}/contract/${encodeURIComponent(contractAddress)}/market_chart/range?vs_currency=${vsCurrency}&from=${from}&to=${to}`;
+  const apiKey = process.env.COINGECKO_API_KEY;
+  const headers: Record<string, string> = apiKey ? { 'x-cg-demo-api-key': apiKey } : {};
+
+  let upstream: Response;
+  try {
+    upstream = await enqueue(() => fetch(url, { headers }));
+  } catch {
+    return c.json({ error: 'CoinGecko request failed' }, 500);
+  }
+
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers: { 'Content-Type': upstream.headers.get('Content-Type') || 'application/json' },
+  });
+});
+
 export default app;

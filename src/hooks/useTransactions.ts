@@ -2,7 +2,8 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ParsedTransaction } from '../types/transaction';
 import { getWalletHistory } from '../lib/helius';
 import { parseWalletHistoryTx } from '../lib/taxCategorizer';
-import { loadTransactions, saveTransactions, clearTransactions } from '../lib/storage';
+import type { TaxCategory } from '../types/transaction';
+import { loadTransactions, saveTransactions, clearTransactions, updateTransactionCategory } from '../lib/storage';
 
 
 
@@ -192,6 +193,14 @@ export function useTransactions(address: string | null) {
     }
   }, [address]);
 
+  const updateCategory = useCallback(async (signature: string, category: TaxCategory) => {
+    if (!address) return;
+    setTransactions(prev => prev.map(tx =>
+      tx.signature === signature ? { ...tx, taxCategory: category } : tx
+    ));
+    await updateTransactionCategory(address, signature, category);
+  }, [address]);
+
   const cancelLoadAll = useCallback(() => {
     cancelAllRef.current = true;
   }, []);
@@ -207,6 +216,7 @@ export function useTransactions(address: string | null) {
     fetchOlder,
     fetchAllHistory,
     cancelLoadAll,
+    updateCategory,
     loadFromStorage,
     resetAndReload,
   };

@@ -124,7 +124,7 @@ export const HELIUS_TYPE_CATEGORY: Partial<Record<string, TaxCategory>> = {
   TOKEN_MINT:                  'TRADE',
   BURN:                        'BURN',
   OPEN_POSITION:               'TRADE',
-  WITHDRAW:                    'TRANSFER_IN',
+  WITHDRAW:                    'STAKE_WITHDRAW',
   WITHDRAW_UNSTAKED_DEPOSITS:  'TRANSFER_IN',
   STAKE_SOL:                   'STAKE_DELEGATE',
   UNSTAKE_SOL:                 'STAKE_WITHDRAW',

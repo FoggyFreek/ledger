@@ -6,8 +6,8 @@ import type { WalletHoldings, TokenHolding, StakeAccount, StakingReward, SeekerS
 
 const PROXY_RPC_URL = '/api/v1/helius/rpc';
 
-// Rate limiter: max 5 req/s (sliding window) + max 3 concurrent
-const MAX_RPS = 5;
+// Rate limiter: max 6 req/s (sliding window) + max 3 concurrent
+const MAX_RPS = 6;
 const WINDOW_MS = 1000;
 const MAX_CONCURRENT = 3;
 let requestTimeStart = 0;
@@ -71,7 +71,7 @@ function enqueue<T>(fn: () => Promise<T>): Promise<T> {
   });
 }
 
-async function rpc<T>(method: string, params: unknown[]): Promise<T> {
+export async function rpc<T>(method: string, params: unknown[]): Promise<T> {
   return enqueue(async () => {
     const res = await fetch(PROXY_RPC_URL, {
       method: 'POST',

@@ -40,6 +40,8 @@ export function TransactionsPage() {
     transactions, loading, loadingAll, error, hasMore, isComplete,
     fetchNew, fetchOlder, fetchAllHistory, cancelLoadAll, loadFromStorage, resetAndReload,
   } = isBitvavo ? bitvavoTransactions : solanaTransactions;
+  const updateCategory = !isBitvavo && 'updateCategory' in solanaTransactions
+    ? solanaTransactions.updateCategory : undefined;
 
   const { stakingRewards, refresh } = useStaking(isBitvavo ? null : activeAddress);
   const { toast, showToast, dismissToast } = useToast();
@@ -418,7 +420,10 @@ export function TransactionsPage() {
                         <p className="text-xs text-gray-600">{format(new Date(tx.blockTime * 1000), 'HH:mm:ss')}</p>
                       </td>
                       <td className="px-4 py-3">
-                        <CategoryBadge category={tx.taxCategory} />
+                        <CategoryBadge
+                          category={tx.taxCategory}
+                          onChangeCategory={updateCategory ? (cat) => updateCategory(tx.signature, cat) : undefined}
+                        />
                         {tx.err && <span className="ml-1 text-xs text-red-500">Failed</span>}
                       </td>
                       <td className="px-4 py-3 text-gray-300 max-w-xs truncate text-xs font-mono">

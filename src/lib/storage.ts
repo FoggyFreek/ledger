@@ -123,6 +123,18 @@ export async function saveTransactions(address: string, stored: StoredTransactio
   await apiPut(`/api/v1/wallets/${address}/transactions`, stored);
 }
 
+export async function updateTransactionCategory(
+  address: string,
+  signature: string,
+  taxCategory: string,
+): Promise<void> {
+  await fetch(`/api/v1/wallets/${address}/transactions/${encodeURIComponent(signature)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taxCategory }),
+  });
+}
+
 export async function clearTransactions(address: string): Promise<void> {
   await apiDelete(`/api/v1/wallets/${address}/transactions`);
 }
@@ -222,4 +234,16 @@ export async function removeGroupMember(address: string, groupId: number, signat
 
 export async function loadGroupMemberships(address: string): Promise<GroupMemberships | null> {
   return apiFetch<GroupMemberships>(`/api/v1/wallets/${address}/group-memberships`);
+}
+
+export async function loadColonyData(): Promise<import('../types/colony').ColonySeasonData | null> {
+  return apiFetch<import('../types/colony').ColonySeasonData>('/api/v1/colony-season');
+}
+
+export async function saveColonyData(data: import('../types/colony').ColonySeasonData): Promise<void> {
+  await apiPut('/api/v1/colony-season', data);
+}
+
+export async function clearColonyData(): Promise<void> {
+  await apiDelete('/api/v1/colony-season');
 }

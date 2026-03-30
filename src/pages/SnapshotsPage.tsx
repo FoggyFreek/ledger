@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Camera, Trash2, Download, AlertTriangle, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
+import { Camera, Trash2, Download, AlertTriangle, ChevronDown, ChevronRight, RefreshCw, Layers } from 'lucide-react';
 import { format } from 'date-fns';
 import { useApp } from '../context/AppContext';
 import { useHoldings } from '../hooks/useHoldings';
@@ -9,12 +9,14 @@ import { useBitvavoTransactions } from '../hooks/useBitvavoTransactions';
 import { useSnapshots } from '../hooks/useSnapshots';
 import { useStaking } from '../hooks/useStaking';
 import { stakingRewardsToTransactions } from '../lib/taxCategorizer';
+import { computeStakingInfo } from '../lib/snapshotEngine';
 import { getCachedTokenInfo, prefetchTokenMeta } from '../lib/helius';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import type { WalletSnapshot } from '../types/wallet';
+import type { ParsedTransaction } from '../types/transaction';
 import { objectsToCsv, downloadCsv } from '../lib/csv';
-import { fetchHistoricalPrices, fetchCoinGeckoHistoricalPricesForSymbols } from '../lib/prices';
+import { fetchHistoricalPrices, fetchCoinGeckoHistoricalPricesForSymbols, fetchHistoricalPricesEur } from '../lib/prices';
 import type { WalletType } from '../types/wallet';
 
 function CreateSnapshotModal({
@@ -122,44 +124,74 @@ function resolveTokenMeta(t: { mint: string; symbol: string; name: string; logoU
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
+type DisplayCurrency = 'USD' | 'EUR';
+
 function SnapshotCard({
   snapshot,
   walletType,
   onDelete,
   onUpdate,
+  displayCurrency,
+  allTransactions,
 }: {
   snapshot: WalletSnapshot;
   walletType: WalletType;
   onDelete: () => void;
   onUpdate: (updated: WalletSnapshot) => Promise<void>;
+  displayCurrency: DisplayCurrency;
+  allTransactions: ParsedTransaction[];
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [stakingExpanded, setStakingExpanded] = useState(false);
   const [refreshing, setRefreshing] = useState<Set<string>>(new Set());
+  const [addingStaking, setAddingStaking] = useState(false);
+
+  const hasStakingTxs = allTransactions.some(tx =>
+    tx.taxCategory === 'STAKE_DELEGATE' || tx.taxCategory === 'STAKING_REWARD' || tx.taxCategory === 'STAKE_WITHDRAW'
+  );
+
+  const addStakingData = async () => {
+    setAddingStaking(true);
+    try {
+      const targetTs = Math.floor(snapshot.targetDate / 1000);
+      const stakingInfo = computeStakingInfo(targetTs, allTransactions, snapshot.walletAddress);
+      await onUpdate({ ...snapshot, stakingInfo });
+    } finally {
+      setAddingStaking(false);
+    }
+  };
 
   const refreshPrice = async (mint: string) => {
     setRefreshing(prev => new Set(prev).add(mint));
     try {
       const targetTs = Math.floor(snapshot.targetDate / 1000);
       let price: number | null = null;
+      let eurPrice: number | null = null;
 
       if (walletType === 'bitvavo') {
-        const cgPrices = await fetchCoinGeckoHistoricalPricesForSymbols([mint], targetTs);
-        price = cgPrices.get(mint)?.usd ?? null;
+        // Bitvavo uses ticker symbols; map SOL_MINT back to "SOL"
+        const symbol = mint === SOL_MINT ? 'SOL' : mint;
+        const cgPrices = await fetchCoinGeckoHistoricalPricesForSymbols([symbol], targetTs);
+        const entry = cgPrices.get(symbol);
+        price = entry?.usd ?? null;
+        eurPrice = entry?.eur ?? null;
       } else {
         const solPrices = await fetchHistoricalPrices([mint], targetTs);
         price = solPrices.get(mint) ?? null;
+        const eurPrices = await fetchHistoricalPricesEur([mint], targetTs);
+        eurPrice = eurPrices.get(mint) ?? null;
       }
 
       if (price == null) return;
 
       let updatedHoldings = snapshot.holdings;
       if (mint === SOL_MINT) {
-        updatedHoldings = { ...snapshot.holdings, solPrice: price };
+        updatedHoldings = { ...snapshot.holdings, solPrice: price, solPriceEur: eurPrice };
       } else {
         updatedHoldings = {
           ...snapshot.holdings,
           tokens: snapshot.holdings.tokens.map(t =>
-            t.mint === mint ? { ...t, usdValue: t.uiAmount * price } : t
+            t.mint === mint ? { ...t, usdValue: t.uiAmount * price, eurValue: eurPrice != null ? t.uiAmount * eurPrice : null } : t
           ),
         };
       }
@@ -170,8 +202,9 @@ function SnapshotCard({
   };
 
   const exportCsv = () => {
-    const rows = [
-      { type: 'SOL', symbol: 'SOL', name: 'Solana', amount: snapshot.holdings.solBalance, usdValue: snapshot.holdings.solPrice != null ? (snapshot.holdings.solBalance * snapshot.holdings.solPrice).toFixed(2) : '', mint: 'native' },
+    const { solPrice, solPriceEur, solBalance } = snapshot.holdings;
+    const rows: Record<string, string | number>[] = [
+      { type: 'SOL', symbol: 'SOL', name: 'Solana', amount: solBalance, usdValue: solPrice != null ? (solBalance * solPrice).toFixed(2) : '', eurValue: solPriceEur != null ? (solBalance * solPriceEur).toFixed(2) : '', mint: 'native' },
       ...snapshot.holdings.tokens.map(t => {
         const meta = resolveTokenMeta(t);
         return {
@@ -180,10 +213,31 @@ function SnapshotCard({
           name: meta.name,
           amount: t.uiAmount,
           usdValue: t.usdValue ?? '',
+          eurValue: t.eurValue ?? '',
           mint: t.mint,
         };
       }),
     ];
+    if (snapshot.stakingInfo) {
+      rows.push({
+        type: 'STAKED',
+        symbol: 'SOL',
+        name: 'Total staked',
+        amount: snapshot.stakingInfo.totalStakedSol,
+        usdValue: solPrice != null ? (snapshot.stakingInfo.totalStakedSol * solPrice).toFixed(2) : '',
+        eurValue: solPriceEur != null ? (snapshot.stakingInfo.totalStakedSol * solPriceEur).toFixed(2) : '',
+        mint: '',
+      });
+      rows.push({
+        type: 'STAKING_REWARDS',
+        symbol: 'SOL',
+        name: `Cumulative rewards (${snapshot.stakingInfo.rewardCount})`,
+        amount: snapshot.stakingInfo.totalRewardsEarnedSol,
+        usdValue: solPrice != null ? (snapshot.stakingInfo.totalRewardsEarnedSol * solPrice).toFixed(2) : '',
+        eurValue: solPriceEur != null ? (snapshot.stakingInfo.totalRewardsEarnedSol * solPriceEur).toFixed(2) : '',
+        mint: '',
+      });
+    }
     downloadCsv(
       `snapshot-${snapshot.label.replace(/\s+/g, '-')}-${format(snapshot.targetDate, 'yyyy-MM-dd')}.csv`,
       objectsToCsv(rows)
@@ -204,6 +258,16 @@ function SnapshotCard({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {!snapshot.stakingInfo && walletType === 'solana' && hasStakingTxs && (
+              <button
+                onClick={addStakingData}
+                disabled={addingStaking}
+                className="text-gray-400 hover:text-purple-400 disabled:opacity-40 transition-colors"
+                title="Add staking data"
+              >
+                <Layers size={16} className={addingStaking ? 'animate-pulse' : ''} />
+              </button>
+            )}
             <button
               onClick={exportCsv}
               className="text-gray-400 hover:text-green-400 transition-colors"
@@ -222,32 +286,57 @@ function SnapshotCard({
         </div>
 
         {/* Summary */}
-        <div className="grid grid-cols-3 gap-3 mt-3">
+        <div className={`grid gap-3 mt-3 ${snapshot.stakingInfo ? 'grid-cols-4' : 'grid-cols-3'}`}>
           <div className="bg-gray-800 rounded-lg px-3 py-2">
             <p className="text-xs text-gray-500">SOL</p>
             <p className="text-sm font-mono text-white">{snapshot.holdings.solBalance.toFixed(4)}</p>
           </div>
+          {snapshot.stakingInfo && (
+            <div className="bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500">Staked SOL</p>
+              <p className="text-sm font-mono text-white">{snapshot.stakingInfo.totalStakedSol.toFixed(4)}</p>
+            </div>
+          )}
           <div className="bg-gray-800 rounded-lg px-3 py-2">
             <p className="text-xs text-gray-500">Tokens</p>
             <p className="text-sm font-mono text-white">{snapshot.holdings.tokens.length}</p>
           </div>
           <div className="bg-gray-800 rounded-lg px-3 py-2">
-            <p className="text-xs text-gray-500">Total USD</p>
+            <p className="text-xs text-gray-500">Total {displayCurrency}</p>
             <p className="text-sm font-mono text-white">
-              {snapshot.holdings.solPrice != null || snapshot.holdings.tokens.some(t => t.usdValue != null)
-                ? `$${((snapshot.holdings.solPrice ?? 0) * snapshot.holdings.solBalance + snapshot.holdings.tokens.reduce((s, t) => s + (t.usdValue ?? 0), 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                : '—'}
+              {(() => {
+                const isEur = displayCurrency === 'EUR';
+                const sp = isEur ? (snapshot.holdings.solPriceEur ?? null) : snapshot.holdings.solPrice;
+                const tokenSum = snapshot.holdings.tokens.reduce((s, t) => s + ((isEur ? (t.eurValue ?? null) : t.usdValue) ?? 0), 0);
+                const stakedValue = snapshot.stakingInfo && sp != null ? snapshot.stakingInfo.totalStakedSol * sp : 0;
+                const hasAny = sp != null || snapshot.holdings.tokens.some(t => (isEur ? t.eurValue : t.usdValue) != null);
+                if (!hasAny) return '—';
+                const total = (sp ?? 0) * snapshot.holdings.solBalance + tokenSum + stakedValue;
+                const sym = isEur ? '€' : '$';
+                return `${sym}${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+              })()}
             </p>
           </div>
         </div>
 
-        <button
-          onClick={() => setExpanded(e => !e)}
-          className="flex items-center gap-1 mt-3 text-xs text-gray-500 hover:text-gray-300"
-        >
-          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          {expanded ? 'Hide' : 'Show'} token breakdown
-        </button>
+        <div className="flex items-center gap-4 mt-3">
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300"
+          >
+            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            {expanded ? 'Hide' : 'Show'} token breakdown
+          </button>
+          {snapshot.stakingInfo && (
+            <button
+              onClick={() => setStakingExpanded(e => !e)}
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300"
+            >
+              {stakingExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              {stakingExpanded ? 'Hide' : 'Show'} staking details
+            </button>
+          )}
+        </div>
       </div>
 
       {expanded && (
@@ -263,7 +352,7 @@ function SnapshotCard({
               </tr>
             </thead>
             <tbody>
-              
+
                 <tr className="border-b border-gray-800/50">
                   <td className="px-4 py-2 text-white flex items-center gap-2">
                     <img src="https://solscan.io/_next/static/media/solPriceLogo.76eeb122.png" alt="SOL" className="w-5 h-5 rounded-full" onError={e => (e.currentTarget.style.display = 'none')} />
@@ -271,14 +360,18 @@ function SnapshotCard({
                   </td>
                   <td className="px-4 py-2 text-right font-mono text-white">{snapshot.holdings.solBalance.toFixed(6)}</td>
                   <td className="px-4 py-2 text-right text-gray-400">
-                    {snapshot.holdings.solPrice != null
-                      ? `$${snapshot.holdings.solPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                      : '—'}
+                    {(() => {
+                      const p = displayCurrency === 'EUR' ? (snapshot.holdings.solPriceEur ?? null) : snapshot.holdings.solPrice;
+                      const sym = displayCurrency === 'EUR' ? '€' : '$';
+                      return p != null ? `${sym}${p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
+                    })()}
                   </td>
                   <td className="px-4 py-2 text-right text-gray-400">
-                    {snapshot.holdings.solPrice != null
-                      ? `$${(snapshot.holdings.solBalance * snapshot.holdings.solPrice).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                      : '—'}
+                    {(() => {
+                      const p = displayCurrency === 'EUR' ? (snapshot.holdings.solPriceEur ?? null) : snapshot.holdings.solPrice;
+                      const sym = displayCurrency === 'EUR' ? '€' : '$';
+                      return p != null ? `${sym}${(snapshot.holdings.solBalance * p).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
+                    })()}
                   </td>
                   <td className="px-4 py-2 text-center">
                     <button
@@ -291,7 +384,7 @@ function SnapshotCard({
                     </button>
                   </td>
                 </tr>
-              
+
               {snapshot.holdings.tokens.map(t => {
                 const meta = resolveTokenMeta(t);
                 return (
@@ -309,12 +402,20 @@ function SnapshotCard({
                       {t.uiAmount.toLocaleString('en-US', { maximumFractionDigits: 6 })}
                     </td>
                     <td className="px-4 py-2 text-right text-gray-400">
-                      {t.usdValue != null && t.uiAmount > 0
-                        ? `$${(t.usdValue / t.uiAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`
-                        : '—'}
+                      {(() => {
+                        const val = displayCurrency === 'EUR' ? (t.eurValue ?? null) : t.usdValue;
+                        const sym = displayCurrency === 'EUR' ? '€' : '$';
+                        return val != null && t.uiAmount > 0
+                          ? `${sym}${(val / t.uiAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`
+                          : '—';
+                      })()}
                     </td>
                     <td className="px-4 py-2 text-right text-gray-400">
-                      {t.usdValue != null ? `$${t.usdValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                      {(() => {
+                        const val = displayCurrency === 'EUR' ? (t.eurValue ?? null) : t.usdValue;
+                        const sym = displayCurrency === 'EUR' ? '€' : '$';
+                        return val != null ? `${sym}${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
+                      })()}
                     </td>
                     <td className="px-4 py-2 text-center">
                       <button
@@ -333,6 +434,48 @@ function SnapshotCard({
           </table>
         </div>
       )}
+
+      {stakingExpanded && snapshot.stakingInfo && (() => {
+        const solPrice = snapshot.holdings.solPrice;
+        const solPriceEur = snapshot.holdings.solPriceEur ?? null;
+        const staked = snapshot.stakingInfo!;
+        const stakedUsd = solPrice != null ? staked.totalStakedSol * solPrice : null;
+        const stakedEur = solPriceEur != null ? staked.totalStakedSol * solPriceEur : null;
+        const rewardsUsd = solPrice != null ? staked.totalRewardsEarnedSol * solPrice : null;
+        const rewardsEur = solPriceEur != null ? staked.totalRewardsEarnedSol * solPriceEur : null;
+        const fmt = (v: number) => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return (
+          <div className="border-t border-gray-800 p-4">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-800 text-gray-500">
+                  <th className="text-left px-4 py-2">Staking</th>
+                  <th className="text-right px-4 py-2">SOL</th>
+                  <th className="text-right px-4 py-2">USD</th>
+                  <th className="text-right px-4 py-2">EUR</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-gray-800/30">
+                  <td className="px-4 py-2 text-white">Total staked</td>
+                  <td className="px-4 py-2 text-right font-mono text-white">{staked.totalStakedSol.toFixed(6)}</td>
+                  <td className="px-4 py-2 text-right font-mono text-gray-400">{stakedUsd != null ? `$${fmt(stakedUsd)}` : '—'}</td>
+                  <td className="px-4 py-2 text-right font-mono text-gray-400">{stakedEur != null ? `€${fmt(stakedEur)}` : '—'}</td>
+                </tr>
+                <tr>
+                  <td className="px-4 py-2 text-white">
+                    Cumulative rewards
+                    <span className="text-gray-600 ml-1">({staked.rewardCount} reward{staked.rewardCount !== 1 ? 's' : ''})</span>
+                  </td>
+                  <td className="px-4 py-2 text-right font-mono text-white">{staked.totalRewardsEarnedSol.toFixed(6)}</td>
+                  <td className="px-4 py-2 text-right font-mono text-gray-400">{rewardsUsd != null ? `$${fmt(rewardsUsd)}` : '—'}</td>
+                  <td className="px-4 py-2 text-right font-mono text-gray-400">{rewardsEur != null ? `€${fmt(rewardsEur)}` : '—'}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -356,6 +499,7 @@ export function SnapshotsPage() {
   const rewardTxns = useMemo(() => isBitvavo ? [] : stakingRewardsToTransactions(stakingRewards), [stakingRewards, isBitvavo]);
   const allTransactions = useMemo(() => [...transactions, ...rewardTxns], [transactions, rewardTxns]);
   const [showCreate, setShowCreate] = useState(false);
+  const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('USD');
   const [, setMetaReady] = useState(0);
 
   // Prefetch metadata for unknown tokens in existing snapshots
@@ -395,13 +539,30 @@ export function SnapshotsPage() {
             Capture wallet state at a specific date — useful for tax reporting
           </p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-        >
-          <Camera size={16} />
-          New Snapshot
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="flex rounded-lg overflow-hidden border border-gray-700">
+            {(['USD', 'EUR'] as const).map(cur => (
+              <button
+                key={cur}
+                onClick={() => setDisplayCurrency(cur)}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  displayCurrency === cur
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:text-white'
+                }`}
+              >
+                {cur === 'USD' ? '$' : '€'} {cur}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          >
+            <Camera size={16} />
+            New Snapshot
+          </button>
+        </div>
       </div>
 
       {!isComplete && (
@@ -430,6 +591,8 @@ export function SnapshotsPage() {
             walletType={wallet?.type ?? 'solana'}
             onDelete={() => remove(snap.id)}
             onUpdate={updateSnapshot}
+            displayCurrency={displayCurrency}
+            allTransactions={allTransactions}
           />
         ))}
       </div>

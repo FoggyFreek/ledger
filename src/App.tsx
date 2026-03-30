@@ -6,7 +6,8 @@ import { TransactionsPage } from './pages/TransactionsPage';
 import { SnapshotsPage } from './pages/SnapshotsPage';
 import { GroupsPage } from './pages/GroupsPage';
 import { TimelinePage } from './pages/TimelinePage';
-type Page = 'overview' | 'transactions' | 'snapshots' | 'groups' | 'timeline';
+import { ColonySeasonPage } from './pages/ColonySeasonPage';
+type Page = 'overview' | 'transactions' | 'snapshots' | 'groups' | 'timeline' | 'colony';
 
 function AppShell() {
   const [page, setPage] = useState<Page>('overview');
@@ -21,6 +22,7 @@ function AppShell() {
         {page === 'snapshots' && <SnapshotsPage />}
         {page === 'groups' && <GroupsPage />}
         {page === 'timeline' && <TimelinePage />}
+        {page === 'colony' && <ColonySeasonPage />}
       </main>
     </div>
   );
