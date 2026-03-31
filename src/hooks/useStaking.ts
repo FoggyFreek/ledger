@@ -26,6 +26,7 @@ export function useStaking(address: string | null) {
   const [loading, setLoading] = useState(false);
   const [loadingRewards, setLoadingRewards] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [seekerError, setSeekerError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!address) return;
@@ -52,16 +53,16 @@ export function useStaking(address: string | null) {
     // No recent stored data, fetch fresh data
     setLoading(true);
     setError(null);
+    setSeekerError(null);
     try {
-      const [accounts, seekerAccts] = await Promise.all([
-        getStakeAccounts(address),
-        getSeekerStakeAccounts(address).catch(() => [] as SeekerStakeAccount[]),
-      ]);
+      const seekerPromise = getSeekerStakeAccounts(address)
+        .then(accts => { saveSeekerStakeAccounts(address, accts); setSeekerAccounts(accts); })
+        .catch(e => { setSeekerError(e instanceof Error ? e.message : String(e)); });
 
+      const accounts = await getStakeAccounts(address);
       saveStakeAccounts(address, accounts);
       setStakeAccounts(accounts);
-      saveSeekerStakeAccounts(address, seekerAccts);
-      setSeekerAccounts(seekerAccts);
+      await seekerPromise;
 
       const pubkeys = accounts.map(a => a.pubkey);
       if (pubkeys.length > 0) {
@@ -113,13 +114,13 @@ export function useStaking(address: string | null) {
       return;
     }
     setLoading(true);
-    setError(null);
+    setSeekerError(null);
     try {
-      const seekerAccts = await getSeekerStakeAccounts(address).catch(() => [] as SeekerStakeAccount[]);
+      const seekerAccts = await getSeekerStakeAccounts(address);
       saveSeekerStakeAccounts(address, seekerAccts);
       setSeekerAccounts(seekerAccts);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setSeekerError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -253,7 +254,7 @@ export function useStaking(address: string | null) {
 
   return {
     stakeAccounts, stakingRewards, epochsFetched, allEpochsFetched,
-    seekerAccounts, loading, loadingRewards, error,
+    seekerAccounts, loading, loadingRewards, error, seekerError,
     refresh, refreshSkrOnly, updateRewards, validateRewards,
   };
 }

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Camera, Trash2, Download, AlertTriangle, ChevronDown, ChevronRight, RefreshCw, Layers } from 'lucide-react';
+import { Camera, Trash2, Download, AlertTriangle, ChevronDown, ChevronRight, RefreshCw, Layers, Eye, EyeOff } from 'lucide-react';
 import { format } from 'date-fns';
 import { useApp } from '../context/AppContext';
 import { useHoldings } from '../hooks/useHoldings';
@@ -143,6 +143,7 @@ function SnapshotCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [stakingExpanded, setStakingExpanded] = useState(false);
+  const [hideZeroValue, setHideZeroValue] = useState(false);
   const [refreshing, setRefreshing] = useState<Set<string>>(new Set());
   const [addingStaking, setAddingStaking] = useState(false);
 
@@ -258,6 +259,13 @@ function SnapshotCard({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setHideZeroValue(h => !h)}
+              className={`transition-colors ${hideZeroValue ? 'text-purple-400 hover:text-purple-300' : 'text-gray-400 hover:text-purple-400'}`}
+              title={hideZeroValue ? 'Show zero-value tokens' : 'Hide zero-value tokens'}
+            >
+              {hideZeroValue ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
             {!snapshot.stakingInfo && walletType === 'solana' && hasStakingTxs && (
               <button
                 onClick={addStakingData}
@@ -385,7 +393,10 @@ function SnapshotCard({
                   </td>
                 </tr>
 
-              {snapshot.holdings.tokens.map(t => {
+              {snapshot.holdings.tokens.filter(t => {
+                if (!hideZeroValue) return true;
+                return (t.usdValue != null && t.usdValue !== 0) || (t.eurValue != null && t.eurValue !== 0);
+              }).map(t => {
                 const meta = resolveTokenMeta(t);
                 return (
                   <tr key={t.mint} className="border-b border-gray-800/30">

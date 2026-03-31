@@ -506,6 +506,7 @@ export function OverviewPage() {
     loading: stakingLoading,
     loadingRewards,
     error: stakingError,
+    seekerError,
     refresh: refreshStaking,
     refreshSkrOnly,
     updateRewards,
@@ -677,6 +678,7 @@ export function OverviewPage() {
 
       {error && <ErrorBanner message={error} />}
       {!isBitvavo && stakingError && <ErrorBanner message={`Staking: ${stakingError}`} />}
+      {!isBitvavo && seekerError && <ErrorBanner message="Failed to load Seeker (SKR) staking data" details={seekerError} />}
 
       {/* Summary cards */}
       {holdings && (

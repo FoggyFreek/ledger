@@ -529,40 +529,50 @@ const SEEKER_SHARE_PRICE_OFFSET = 137;           // share_price in global config
 const SEEKER_SHARE_PRICE_PRECISION = 1_000_000_000n; // share_price fixed-point denominator
 
 async function getSeekerSharePrice(): Promise<bigint> {
-  try {
-    const result = await rpc<{ value: { data: [string, string] } | null }>(
-      'getAccountInfo',
-      [SEEKER_STAKING_CONFIG, { encoding: 'base64', commitment: 'finalized' }]
-    );
-    if (!result.value) return SEEKER_SHARE_PRICE_PRECISION;
-    const bytes = Uint8Array.from(atob(result.value.data[0]), c => c.charCodeAt(0));
-    const view = new DataView(bytes.buffer);
-    if (bytes.length >= SEEKER_SHARE_PRICE_OFFSET + 16) {
-      const lo = view.getBigUint64(SEEKER_SHARE_PRICE_OFFSET, true);
-      const hi = view.getBigUint64(SEEKER_SHARE_PRICE_OFFSET + 8, true);
-      return lo + (hi << 64n);
-    }
-  } catch {
-    // fall through to default
+  const result = await rpc<{ value: { data: [string, string] } | null }>(
+    'getAccountInfo',
+    [SEEKER_STAKING_CONFIG, { encoding: 'base64', commitment: 'finalized' }]
+  );
+  if (!result.value) {
+    throw new Error('Seeker staking config account not found on-chain');
   }
-  return SEEKER_SHARE_PRICE_PRECISION; // 1:1 fallback
+  const bytes = Uint8Array.from(atob(result.value.data[0]), c => c.charCodeAt(0));
+  const view = new DataView(bytes.buffer);
+  if (bytes.length < SEEKER_SHARE_PRICE_OFFSET + 16) {
+    throw new Error(`Seeker config account data too short (${bytes.length} bytes, need ${SEEKER_SHARE_PRICE_OFFSET + 16})`);
+  }
+  const lo = view.getBigUint64(SEEKER_SHARE_PRICE_OFFSET, true);
+  const hi = view.getBigUint64(SEEKER_SHARE_PRICE_OFFSET + 8, true);
+  return lo + (hi << 64n);
 }
 
 export async function getSeekerStakeAccounts(walletAddress: string): Promise<SeekerStakeAccount[]> {
-  const [raw, sharePrice] = await Promise.all([
-    rpc<Array<{
-      pubkey: string;
-      account: { lamports: number; data: [string, string] };
-    }>>('getProgramAccounts', [
-      SEEKER_PROGRAM_ID,
-      {
-        encoding: 'base64',
-        filters: [{ memcmp: { offset: SEEKER_USER_OFFSET, bytes: walletAddress } }],
-        commitment: 'finalized',
-      },
-    ]),
-    getSeekerSharePrice(),
-  ]);
+  let raw: Array<{
+    pubkey: string;
+    account: { lamports: number; data: [string, string] };
+  }>;
+  let sharePrice: bigint;
+
+  try {
+    [raw, sharePrice] = await Promise.all([
+      rpc<Array<{
+        pubkey: string;
+        account: { lamports: number; data: [string, string] };
+      }>>('getProgramAccounts', [
+        SEEKER_PROGRAM_ID,
+        {
+          encoding: 'base64',
+          filters: [{ memcmp: { offset: SEEKER_USER_OFFSET, bytes: walletAddress } }],
+          commitment: 'finalized',
+        },
+      ]),
+      getSeekerSharePrice(),
+    ]);
+  } catch (e) {
+    throw new Error(
+      `Failed to fetch Seeker stake accounts: ${e instanceof Error ? e.message : String(e)}`
+    );
+  }
 
   return raw.map(r => {
     let stakedRaw = BigInt(0);
@@ -570,17 +580,20 @@ export async function getSeekerStakeAccounts(walletAddress: string): Promise<See
     try {
       const bytes = Uint8Array.from(atob(r.account.data[0]), c => c.charCodeAt(0));
       const view = new DataView(bytes.buffer);
-      if (bytes.length >= SEEKER_SHARES_OFFSET + 16) {
-        const sharesLo = view.getBigUint64(SEEKER_SHARES_OFFSET, true);
-        const sharesHi = view.getBigUint64(SEEKER_SHARES_OFFSET + 8, true);
-        const shares = sharesLo + (sharesHi << 64n);
-        stakedRaw = (shares * sharePrice) / SEEKER_SHARE_PRICE_PRECISION;
+      if (bytes.length < SEEKER_SHARES_OFFSET + 16) {
+        throw new Error(`Account data too short to read shares (${bytes.length} bytes, need ${SEEKER_SHARES_OFFSET + 16})`);
       }
+      const sharesLo = view.getBigUint64(SEEKER_SHARES_OFFSET, true);
+      const sharesHi = view.getBigUint64(SEEKER_SHARES_OFFSET + 8, true);
+      const shares = sharesLo + (sharesHi << 64n);
+      stakedRaw = (shares * sharePrice) / SEEKER_SHARE_PRICE_PRECISION;
       if (bytes.length > SEEKER_UNSTAKING_OFFSET + 7) {
         unstakingAmount = view.getBigUint64(SEEKER_UNSTAKING_OFFSET, true);
       }
-    } catch {
-      // leave as zero if decoding fails
+    } catch (e) {
+      throw new Error(
+        `Failed to decode Seeker stake account ${r.pubkey}: ${e instanceof Error ? e.message : String(e)}`
+      );
     }
     return { pubkey: r.pubkey, lamports: r.account.lamports, stakedRaw, unstakingAmount };
   });

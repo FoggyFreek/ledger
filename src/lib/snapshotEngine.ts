@@ -10,6 +10,53 @@ import { BITVAVO_TOKEN_META } from './bitvavoParser';
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
+// Converts a float amount to raw bigint without losing precision for high-decimal tokens.
+// toFixed caps at the float's ~15 significant digits, then we parse as integer.
+function floatToRawBigInt(amount: number, decimals: number): bigint {
+  const str = amount.toFixed(Math.min(decimals, 15));
+  const [intStr, fracStr = ''] = str.split('.');
+  const paddedFrac = fracStr.padEnd(decimals, '0').slice(0, decimals);
+  return BigInt(intStr + paddedFrac);
+}
+
+/**
+ * Replay balance changes from transactions up to targetTs.
+ * Staking rewards are excluded — they accumulate in stake accounts, not the wallet's liquid balance.
+ */
+export function computeSnapshotBalances(
+  targetTs: number,
+  allTransactions: ParsedTransaction[],
+): { solLamports: bigint; tokenMap: Map<string, bigint>; tokenDecimals: Map<string, number>; txCount: number } {
+  const filtered = allTransactions
+    .filter(tx => tx.blockTime <= targetTs && tx.err === null)
+    .sort((a, b) => a.blockTime - b.blockTime);
+
+  const tokenMap = new Map<string, bigint>();
+  const tokenDecimals = new Map<string, number>();
+  let solLamports = BigInt(0);
+
+  for (const tx of filtered) {
+    // Skip staking reward balance changes — they accumulate in stake accounts,
+    // not the wallet's liquid SOL balance. They are tracked separately in stakingInfo.
+    if (tx.taxCategory === 'STAKING_REWARD') continue;
+
+    for (const bc of tx.balanceChanges) {
+      if (isSolMint(bc.mint)) {
+        solLamports += floatToRawBigInt(bc.amount, 9);
+      } else {
+        const rawDelta = floatToRawBigInt(bc.amount, bc.decimals);
+        const current = tokenMap.get(bc.mint) ?? BigInt(0);
+        tokenMap.set(bc.mint, current + rawDelta);
+        if (!tokenDecimals.has(bc.mint)) {
+          tokenDecimals.set(bc.mint, bc.decimals);
+        }
+      }
+    }
+  }
+
+  return { solLamports, tokenMap, tokenDecimals, txCount: filtered.length };
+}
+
 export async function createSnapshot(
   walletAddress: string,
   label: string,
@@ -30,39 +77,9 @@ export async function createSnapshot(
     }
   }
 
-  // Filter transactions up to target date (successful only)
-  const filtered = allTransactions
-    .filter(tx => tx.blockTime <= targetTs && tx.err === null)
-    .sort((a, b) => a.blockTime - b.blockTime);
-
-  // Converts a float amount to raw bigint without losing precision for high-decimal tokens.
-  // toFixed caps at the float's ~15 significant digits, then we parse as integer.
-  function floatToRawBigInt(amount: number, decimals: number): bigint {
-    const str = amount.toFixed(Math.min(decimals, 15));
-    const [intStr, fracStr = ''] = str.split('.');
-    const paddedFrac = fracStr.padEnd(decimals, '0').slice(0, decimals);
-    return BigInt(intStr + paddedFrac);
-  }
-
-  // Reconstruct token balances by replaying individual balance changes
-  const tokenMap = new Map<string, bigint>(); // mint -> raw amount
-  const tokenDecimals = new Map<string, number>();
-  let solLamports = BigInt(0);
-
-  for (const tx of filtered) {
-    for (const bc of tx.balanceChanges) {
-      if (isSolMint(bc.mint)) {
-        solLamports += floatToRawBigInt(bc.amount, 9);
-      } else {
-        const rawDelta = floatToRawBigInt(bc.amount, bc.decimals);
-        const current = tokenMap.get(bc.mint) ?? BigInt(0);
-        tokenMap.set(bc.mint, current + rawDelta);
-        if (!tokenDecimals.has(bc.mint)) {
-          tokenDecimals.set(bc.mint, bc.decimals);
-        }
-      }
-    }
-  }
+  // Replay balance changes (excludes staking rewards from liquid balance)
+  const { solLamports, tokenMap, tokenDecimals, txCount: filteredCount } =
+    computeSnapshotBalances(targetTs, allTransactions);
 
   // Prefetch metadata for mints not already in current holdings or registry — skip for Bitvavo
   if (!isBitvavo) {
@@ -156,7 +173,7 @@ export async function createSnapshot(
     createdAt: Date.now(),
     slotApproximation: slotApprox,
     holdings,
-    txCountIncluded: filtered.length,
+    txCountIncluded: filteredCount,
     stakingInfo,
   };
 }
