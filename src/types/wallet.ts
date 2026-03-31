@@ -43,14 +43,7 @@ export interface WalletSnapshot {
     totalStakedSol: number;
     totalRewardsEarnedSol: number;
     rewardCount: number;
-    stakeAccounts: StakeAccountSnapshot[];
   };
-}
-
-export interface StakeAccountSnapshot {
-  pubkey: string;
-  stakedLamports: number;
-  voter: string;
 }
 
 export interface StakeAccount {

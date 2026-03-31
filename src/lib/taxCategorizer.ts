@@ -5,8 +5,7 @@ import { SEEKER_STAKING_CONFIG, SKR_MINT } from './helius';
 
 export type { InterpretedFlow, RentItem };
 
-const NATIVE_SOL_MINT = 'So11111111111111111111111111111111111111111';
-const WSOL_MINT       = 'So11111111111111111111111111111111111111112';
+import { NATIVE_SOL_MINT, SOL_MINT as WSOL_MINT } from './constants';
 
 export function isSolMint(mint: string): boolean {
   return mint === 'SOL' || mint === NATIVE_SOL_MINT || mint === WSOL_MINT;

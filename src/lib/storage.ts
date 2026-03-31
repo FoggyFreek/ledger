@@ -139,13 +139,21 @@ export async function clearTransactions(address: string): Promise<void> {
   await apiDelete(`/api/v1/wallets/${address}/transactions`);
 }
 
-// Snapshots
-export async function loadSnapshots(): Promise<WalletSnapshot[]> {
-  return (await apiFetch<WalletSnapshot[]>('/api/v1/snapshots')) ?? [];
+// Snapshots (wallet-scoped)
+export async function loadSnapshotsForWallet(address: string): Promise<WalletSnapshot[]> {
+  return (await apiFetch<WalletSnapshot[]>(`/api/v1/wallets/${address}/snapshots`)) ?? [];
 }
 
-export async function saveSnapshots(snapshots: WalletSnapshot[]): Promise<void> {
-  await apiPut('/api/v1/snapshots', snapshots);
+export async function addSnapshot(address: string, snapshot: WalletSnapshot): Promise<void> {
+  await apiPost(`/api/v1/wallets/${address}/snapshots`, snapshot);
+}
+
+export async function updateSnapshotById(address: string, id: string, snapshot: WalletSnapshot): Promise<void> {
+  await apiPut(`/api/v1/wallets/${address}/snapshots/${id}`, snapshot);
+}
+
+export async function deleteSnapshotById(address: string, id: string): Promise<void> {
+  await apiDelete(`/api/v1/wallets/${address}/snapshots/${id}`);
 }
 
 // Staking

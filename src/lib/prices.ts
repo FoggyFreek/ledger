@@ -1,4 +1,4 @@
-const SOL_MINT = 'So11111111111111111111111111111111111111112';
+import { SOL_MINT } from './constants';
 const BATCH_SIZE = 25;
 
 // Maps Bitvavo ticker symbols to CoinGecko IDs for DeFiLlama price lookups

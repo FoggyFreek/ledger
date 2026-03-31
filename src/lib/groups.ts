@@ -3,7 +3,7 @@ import { isSolMint, interpretTransaction } from './taxCategorizer';
 import type { ParsedTransaction, TaxCategory } from '../types/transaction';
 import type { GroupMember, GroupMemberInput } from '../types/groups';
 
-const SOL_MINT = 'So11111111111111111111111111111111111111112';
+import { SOL_MINT } from './constants';
 
 export async function computeUsdValues(transactions: ParsedTransaction[]): Promise<GroupMemberInput[]> {
   // Group transactions by blockTime to batch price fetches

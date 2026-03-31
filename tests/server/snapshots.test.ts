@@ -18,6 +18,8 @@ beforeEach(() => {
   mockSql.mockResolvedValue([]);
 });
 
+// --- Legacy endpoints ---
+
 describe('GET /snapshots', () => {
   it('returns an empty array when no snapshots exist', async () => {
     mockSql.mockResolvedValue([]);
@@ -93,5 +95,89 @@ describe('PUT /snapshots', () => {
       body: JSON.stringify([]),
     });
     expect(mockSql.array).not.toHaveBeenCalled();
+  });
+});
+
+// --- Wallet-scoped endpoints ---
+
+describe('GET /wallets/:addr/snapshots', () => {
+  it('returns empty array when wallet has no snapshots', async () => {
+    mockSql.mockResolvedValue([]);
+    const res = await app.request('/wallets/addr1/snapshots');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+
+  it('returns snapshots for the specified wallet', async () => {
+    const snaps = [{ id: '1', label: 'Jan 1' }, { id: '2', label: 'Jul 1' }];
+    mockSql.mockResolvedValue([{ data: snaps }]);
+    const res = await app.request('/wallets/addr1/snapshots');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(snaps);
+  });
+});
+
+describe('POST /wallets/:addr/snapshots', () => {
+  it('creates a snapshot and returns 201', async () => {
+    const snapshot = { id: 'snap-1', label: 'Test' };
+    const res = await app.request('/wallets/addr1/snapshots', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(snapshot),
+    });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual(snapshot);
+    expect(mockSql.json).toHaveBeenCalledWith([snapshot]);
+  });
+});
+
+describe('PUT /wallets/:addr/snapshots/:id', () => {
+  it('updates an existing snapshot', async () => {
+    const existing = [{ id: 'snap-1', label: 'Old' }, { id: 'snap-2', label: 'Keep' }];
+    mockSql.mockResolvedValue([{ data: existing }]);
+
+    const updated = { id: 'snap-1', label: 'New' };
+    const res = await app.request('/wallets/addr1/snapshots/snap-1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(updated);
+    // Should write the array with the updated snapshot
+    expect(mockSql.json).toHaveBeenCalledWith([updated, { id: 'snap-2', label: 'Keep' }]);
+  });
+
+  it('returns 404 when wallet has no snapshots', async () => {
+    mockSql.mockResolvedValue([]);
+    const res = await app.request('/wallets/addr1/snapshots/snap-1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'snap-1', label: 'New' }),
+    });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('DELETE /wallets/:addr/snapshots/:id', () => {
+  it('removes a snapshot from the array', async () => {
+    const existing = [{ id: 'snap-1', label: 'Del' }, { id: 'snap-2', label: 'Keep' }];
+    mockSql.mockResolvedValue([{ data: existing }]);
+
+    const res = await app.request('/wallets/addr1/snapshots/snap-1', {
+      method: 'DELETE',
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(mockSql.json).toHaveBeenCalledWith([{ id: 'snap-2', label: 'Keep' }]);
+  });
+
+  it('returns ok when wallet has no snapshots', async () => {
+    mockSql.mockResolvedValue([]);
+    const res = await app.request('/wallets/addr1/snapshots/snap-1', {
+      method: 'DELETE',
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
   });
 });

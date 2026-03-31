@@ -3,12 +3,11 @@ import type { WalletHoldings, WalletSnapshot, TokenHolding } from '../types/wall
 import { findSlotForTimestamp } from './slotFinder';
 import { getCachedTokenInfo, prefetchTokenMeta } from './helius';
 import { isSolMint } from './taxCategorizer';
-import { fetchHistoricalPrices, fetchCoinGeckoHistoricalPricesForSymbols, fetchHistoricalPricesEur } from './prices';
 import { v4 as uuidv4 } from '../lib/uuid';
 import { isBitvavoWallet } from './walletType';
 import { BITVAVO_TOKEN_META } from './bitvavoParser';
-
-const SOL_MINT = 'So11111111111111111111111111111111111111112';
+import { SOL_MINT } from './constants';
+import { fetchSnapshotTokenPrices } from './snapshotPrices';
 
 // Converts a float amount to raw bigint without losing precision for high-decimal tokens.
 // toFixed caps at the float's ~15 significant digits, then we parse as integer.
@@ -103,20 +102,9 @@ export async function createSnapshot(
   }
 
   // Fetch historical prices for all tokens + SOL (USD + EUR)
-  let prices = new Map<string, number>();
-  let eurPrices = new Map<string, number>();
-  if (!isBitvavo) {
-    const allMints = [SOL_MINT, ...positiveMints];
-    prices = await fetchHistoricalPrices(allMints, targetTs);
-    eurPrices = await fetchHistoricalPricesEur(allMints, targetTs);
-  } else {
-    // Bitvavo tokens use ticker symbols as mint keys; resolve via CoinGecko
-    const cgPrices = await fetchCoinGeckoHistoricalPricesForSymbols([...positiveMints], targetTs);
-    for (const [sym, { usd, eur }] of cgPrices) {
-      prices.set(sym, usd);
-      eurPrices.set(sym, eur);
-    }
-  }
+  const walletType = isBitvavo ? 'bitvavo' as const : 'solana' as const;
+  const allMints = isBitvavo ? [...positiveMints] : [SOL_MINT, ...positiveMints];
+  const { usd: prices, eur: eurPrices } = await fetchSnapshotTokenPrices(allMints, targetTs, walletType);
   const solPrice = prices.get(SOL_MINT) ?? null;
   const solPriceEur = eurPrices.get(SOL_MINT) ?? null;
   const solBalance = Number(solLamports) / 1e9;
@@ -222,6 +210,5 @@ export function computeStakingInfo(
     totalStakedSol: totalStakedLamports / 1e9,
     totalRewardsEarnedSol: totalRewardsLamports / 1e9,
     rewardCount,
-    stakeAccounts: [],
   };
 }
