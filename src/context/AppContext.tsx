@@ -16,6 +16,8 @@ interface AppContextValue {
   settings: Settings;
   activeAddress: string | null;
   setActiveAddress: (addr: string | null) => void;
+  walletTotals: Record<string, number>;
+  setWalletTotal: (address: string, total: number) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -24,6 +26,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [wallets, setWallets] = useState<WalletEntry[]>([]);
   const [settings, setSettings] = useState<Settings>({ helius: false, coingecko: false, bitvavo: false });
   const [activeAddress, setActiveAddress] = useState<string | null>(null);
+  const [walletTotals, setWalletTotalsState] = useState<Record<string, number>>({});
+  const setWalletTotal = useCallback((address: string, total: number) => {
+    setWalletTotalsState(prev => ({ ...prev, [address]: total }));
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -91,6 +97,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       wallets, addWallet, removeWallet, updateWalletLabel,
       settings,
       activeAddress, setActiveAddress,
+      walletTotals, setWalletTotal,
     }}>
       {children}
     </AppContext.Provider>

@@ -6,8 +6,6 @@ import { parseWalletHistoryTx } from '../lib/taxCategorizer';
 import type { TaxCategory } from '../types/transaction';
 import { loadTransactions, saveTransactions, clearTransactions, updateTransactionCategory } from '../lib/storage';
 
-
-
 function sortDesc(txns: ParsedTransaction[]): ParsedTransaction[] {
   return txns.slice().sort((a, b) => b.blockTime - a.blockTime);
 }

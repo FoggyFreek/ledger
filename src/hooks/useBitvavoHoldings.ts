@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { WalletHoldings } from '../types/wallet';
 import type { HoldingsHookResult } from '../types/holdingsHook';
 import { getAccountBalance } from '../lib/bitvavo';
@@ -13,17 +13,22 @@ export function useBitvavoHoldings(address: string | null): HoldingsHookResult {
   const [holdings, setHoldings] = useState<WalletHoldings | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const holdingsRef = useRef<WalletHoldings | null>(null);
 
   const isBitvavo = address === BITVAVO_ADDRESS;
 
   useEffect(() => {
     if (!isBitvavo) return;
-    loadHoldings(BITVAVO_ADDRESS).then(h => h && setHoldings(h));
+    loadHoldings(BITVAVO_ADDRESS).then(h => {
+      if (h) { setHoldings(h); holdingsRef.current = h; }
+    });
   }, [isBitvavo]);
 
   const refresh = useCallback(async (force = false) => {
     if (!isBitvavo) return;
-    const cached = await loadHoldings(BITVAVO_ADDRESS);
+    const cached = holdingsRef.current?.walletAddress === BITVAVO_ADDRESS
+      ? holdingsRef.current
+      : await loadHoldings(BITVAVO_ADDRESS);
     if (!force && cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
       setHoldings(cached);
       return;
@@ -49,6 +54,7 @@ export function useBitvavoHoldings(address: string | null): HoldingsHookResult {
 
       await saveHoldings(data);
       setHoldings(data);
+      holdingsRef.current = data;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

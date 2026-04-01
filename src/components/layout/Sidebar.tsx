@@ -15,41 +15,47 @@ interface Props {
 }
 
 export function Sidebar({ activePage, onPageChange }: Props) {
-  const { wallets, activeAddress, setActiveAddress, removeWallet, settings } = useApp();
+  const { wallets, activeAddress, setActiveAddress, removeWallet, settings, walletTotals, setWalletTotal } = useApp();
   const [showAddWallet, setShowAddWallet] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [currentEpoch, setCurrentEpoch] = useState<number | null>(null);
-  const [walletTotals, setWalletTotals] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!settings.helius) return;
     fetchCurrentEpoch().then(setCurrentEpoch).catch(() => {});
   }, [settings.helius]);
 
+  // Fetch totals for a single wallet from cached DB data
+  const fetchWalletTotal = async (address: string): Promise<number | null> => {
+    const isBitvavo = isBitvavoWallet(address);
+    const [h, stakeResult, seekerResult] = await Promise.all([
+      loadHoldings(address).catch(() => null),
+      isBitvavo ? Promise.resolve(null) : loadStakeAccounts(address).catch(() => null),
+      isBitvavo ? Promise.resolve(null) : loadSeekerStakeAccounts(address).catch(() => null),
+    ]);
+    if (!h) return null;
+    const solUsd = h.solPrice != null ? h.solBalance * h.solPrice : 0;
+    const tokenUsd = h.tokens.reduce((s, t) => s + (t.usdValue ?? 0), 0);
+    const stakedSol = (stakeResult?.data ?? []).reduce((s, a) => s + a.lamports / 1e9, 0);
+    const stakedSolUsd = h.solPrice != null ? stakedSol * h.solPrice : 0;
+    const skrToken = h.tokens.find(t => t.mint === 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3');
+    const skrPrice = skrToken && skrToken.uiAmount > 0 && skrToken.usdValue != null
+      ? skrToken.usdValue / skrToken.uiAmount : null;
+    const seekerAccounts = seekerResult?.data ?? [];
+    const stakedSkr = seekerAccounts.reduce((s, a) => s + SKR_RAW_TO_UI(a.stakedRaw) + SKR_RAW_TO_UI(a.unstakingAmount), 0);
+    const stakedSkrUsd = skrPrice != null ? stakedSkr * skrPrice : 0;
+    return solUsd + tokenUsd + stakedSolUsd + stakedSkrUsd;
+  };
+
+  // Load all wallet totals on mount / when wallet list changes (initial population from DB cache)
   useEffect(() => {
-    const totals: Record<string, number> = {};
     Promise.all(
       wallets.map(async w => {
-        const isBitvavo = isBitvavoWallet(w.address);
-        const [h, stakeResult, seekerResult] = await Promise.all([
-          loadHoldings(w.address).catch(() => null),
-          isBitvavo ? Promise.resolve(null) : loadStakeAccounts(w.address).catch(() => null),
-          isBitvavo ? Promise.resolve(null) : loadSeekerStakeAccounts(w.address).catch(() => null),
-        ]);
-        if (!h) return;
-        const solUsd = h.solPrice != null ? h.solBalance * h.solPrice : 0;
-        const tokenUsd = h.tokens.reduce((s, t) => s + (t.usdValue ?? 0), 0);
-        const stakedSol = (stakeResult?.data ?? []).reduce((s, a) => s + a.lamports / 1e9, 0);
-        const stakedSolUsd = h.solPrice != null ? stakedSol * h.solPrice : 0;
-        const skrToken = h.tokens.find(t => t.mint === 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3');
-        const skrPrice = skrToken && skrToken.uiAmount > 0 && skrToken.usdValue != null
-          ? skrToken.usdValue / skrToken.uiAmount : null;
-        const seekerAccounts = seekerResult?.data ?? [];
-        const stakedSkr = seekerAccounts.reduce((s, a) => s + SKR_RAW_TO_UI(a.stakedRaw) + SKR_RAW_TO_UI(a.unstakingAmount), 0);
-        const stakedSkrUsd = skrPrice != null ? stakedSkr * skrPrice : 0;
-        totals[w.address] = solUsd + tokenUsd + stakedSolUsd + stakedSkrUsd;
+        const total = await fetchWalletTotal(w.address);
+        if (total != null) setWalletTotal(w.address, total);
       })
-    ).then(() => setWalletTotals({ ...totals }));
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallets]);
 
   const navItems = [

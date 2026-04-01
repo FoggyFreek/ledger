@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AppProvider } from './context/AppContext';
 import { Sidebar } from './components/layout/Sidebar';
+import { LogSidebar } from './components/layout/LogSidebar';
 import { OverviewPage } from './pages/OverviewPage';
 import { TransactionsPage } from './pages/TransactionsPage';
 import { SnapshotsPage } from './pages/SnapshotsPage';
@@ -24,6 +25,7 @@ function AppShell() {
         {page === 'timeline' && <TimelinePage />}
         {page === 'colony' && <ColonySeasonPage />}
       </main>
+      <LogSidebar />
     </div>
   );
 }

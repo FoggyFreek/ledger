@@ -14,21 +14,19 @@ interface TransactionToolbarProps {
   hasMore: boolean;
   showFilters: boolean;
   onToggleFilters: () => void;
-  primaryLabel: string;
-  onPrimary: () => void;
+  onSyncNew: () => void;
   onLoadAll: () => void;
   onCancelLoadAll: () => void;
   onReset: () => void;
-  filterProps: Omit<TransactionFiltersProps, 'showWalletOnlyFilter'>;
-  showWalletOnlyFilter: boolean;
+  filterProps: TransactionFiltersProps;
 }
 
 export function TransactionToolbar({
-  txCount, filteredCount, allCount, isComplete, extraStatsText,
+  txCount, filteredCount, allCount, isComplete,
   loading, loadingAll, hasMore,
   showFilters, onToggleFilters,
-  primaryLabel, onPrimary, onLoadAll, onCancelLoadAll, onReset,
-  filterProps, showWalletOnlyFilter,
+  onSyncNew, onLoadAll, onCancelLoadAll, onReset,
+  filterProps,
 }: TransactionToolbarProps) {
   return (
     <>
@@ -36,7 +34,7 @@ export function TransactionToolbar({
         <div>
           <h2 className="text-xl font-bold text-white">Transactions</h2>
           <p className="text-sm text-gray-500">
-            {txCount} loaded{extraStatsText}{isComplete ? ' (complete history)' : ''}
+            {txCount} loaded{isComplete ? ' (complete history)' : ''}
             {filteredCount !== allCount ? ` · ${filteredCount} matching` : ''}
           </p>
         </div>
@@ -59,12 +57,12 @@ export function TransactionToolbar({
             </button>
           )}
           <button
-            onClick={onPrimary}
+            onClick={onSyncNew}
             disabled={loading || loadingAll}
             className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg px-3 py-2 text-sm transition-colors disabled:opacity-50"
           >
             {loading ? <LoadingSpinner size={14} /> : <RefreshCw size={14} />}
-            {primaryLabel}
+            Sync New
           </button>
           <button
             onClick={onReset}
@@ -81,7 +79,6 @@ export function TransactionToolbar({
       {showFilters && (
         <TransactionFilters
           {...filterProps}
-          showWalletOnlyFilter={showWalletOnlyFilter}
         />
       )}
     </>

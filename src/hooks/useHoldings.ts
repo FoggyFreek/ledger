@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { WalletHoldings } from '../types/wallet';
 import type { HoldingsHookResult } from '../types/holdingsHook';
 import { getAssetsByOwner } from '../lib/helius';
@@ -10,15 +10,21 @@ export function useHoldings(address: string | null): HoldingsHookResult {
   const [holdings, setHoldings] = useState<WalletHoldings | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const holdingsRef = useRef<WalletHoldings | null>(null);
 
+  // Clear stale in-memory ref when address changes
   useEffect(() => {
-    if (!address) return;
-    loadHoldings(address).then(h => h && setHoldings(h));
+    if (holdingsRef.current?.walletAddress !== address) {
+      holdingsRef.current = null;
+    }
   }, [address]);
 
-  const fetch = useCallback(async (force = false) => {
+  const refresh = useCallback(async (force = false) => {
     if (!address) return;
-    const cached = await loadHoldings(address);
+    // Use in-memory data if fresh, avoiding a redundant DB read
+    const cached = holdingsRef.current?.walletAddress === address
+      ? holdingsRef.current
+      : await loadHoldings(address);
     if (!force && cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
       setHoldings(cached);
       return;
@@ -27,8 +33,9 @@ export function useHoldings(address: string | null): HoldingsHookResult {
     setError(null);
     try {
       const data = await getAssetsByOwner(address);
-      saveHoldings(data);
+      await saveHoldings(data);
       setHoldings(data);
+      holdingsRef.current = data;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -36,5 +43,5 @@ export function useHoldings(address: string | null): HoldingsHookResult {
     }
   }, [address]);
 
-  return { holdings, loading, error, refresh: fetch };
+  return { holdings, loading, error, refresh };
 }

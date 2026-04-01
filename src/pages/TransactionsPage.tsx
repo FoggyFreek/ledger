@@ -3,8 +3,7 @@ import { useApp } from '../context/AppContext';
 import { useWalletTransactions } from '../hooks/useWalletTransactions';
 import { useStaking } from '../hooks/useStaking';
 import { Toast } from '../components/shared/Toast';
-import { SolanaTransactionsView } from '../components/transactions/SolanaTransactionsView';
-import { BitvavoTransactionsView } from '../components/transactions/BitvavoTransactionsView';
+import { TransactionsView } from '../components/transactions/TransactionsView';
 import { useToast } from '../hooks/useToast';
 import { prefetchTokenMeta, getCachedTokenInfo } from '../lib/helius';
 import type { TokenMeta } from '../lib/helius';
@@ -94,11 +93,9 @@ export function TransactionsPage() {
     refreshMemberships(activeAddress);
   };
 
-  const ViewComponent = isBitvavo ? BitvavoTransactionsView : SolanaTransactionsView;
-
   return (
     <div className="space-y-4">
-      <ViewComponent
+      <TransactionsView
         key={activeAddress}
         transactions={transactions}
         allTxns={allTxns}
@@ -107,6 +104,7 @@ export function TransactionsPage() {
         memberships={memberships}
         hook={hook}
         activeAddress={activeAddress}
+        walletType={wallet?.type ?? 'solana'}
         onReset={handleReset}
         onGroupSaved={handleGroupSaved}
       />

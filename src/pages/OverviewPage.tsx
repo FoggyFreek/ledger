@@ -32,7 +32,6 @@ function StatusBadge({ status }: { status: StakeAccount['status'] }) {
 // ─── Summary Cards ────────────────────────────────────────────────────────────
 
 interface SummaryCardsProps {
-  solBalance: number;
   usdTotal: number;
   tokenCount: number;
   totalStakedSol: number;
@@ -40,17 +39,10 @@ interface SummaryCardsProps {
   isBitvavo?: boolean;
 }
 
-function SummaryCards({ solBalance, usdTotal, tokenCount, totalStakedSol, fetchedAt, isBitvavo }: SummaryCardsProps) {
+function SummaryCards({ usdTotal, tokenCount, totalStakedSol, fetchedAt, isBitvavo }: SummaryCardsProps) {
   const fetchedDate = new Date(fetchedAt);
   return (
-    <div className={`grid ${isBitvavo ? 'grid-cols-2' : 'grid-cols-3'} gap-4`}>
-      {!isBitvavo && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-          <p className="text-xs text-gray-500 mb-1">SOL Balance</p>
-          <p className="text-2xl font-bold text-white">{solBalance.toFixed(4)}</p>
-          <p className="text-xs text-gray-500 mt-1">SOL</p>
-        </div>
-      )}
+    <div className="grid grid-cols-2 gap-4">
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
         <p className="text-xs text-gray-500 mb-1">Total Value</p>
         <p className="text-2xl font-bold text-white">
@@ -488,7 +480,7 @@ function NativeStakingSection({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function OverviewPage() {
-  const { wallets, activeAddress, settings } = useApp();
+  const { wallets, activeAddress, settings, setWalletTotal } = useApp();
   const wallet = wallets.find(w => w.address === activeAddress);
   const isBitvavo = wallet?.type === 'bitvavo';
 
@@ -505,7 +497,6 @@ export function OverviewPage() {
     error: stakingError,
     seekerError,
     refresh: refreshStaking,
-    refreshSkrOnly,
     updateRewards,
     validateRewards,
   } = useStaking(isBitvavo ? null : activeAddress);
@@ -517,15 +508,17 @@ export function OverviewPage() {
     if (isBitvavo) {
       refresh(false);
     } else if (settings.helius) {
-      refresh(false);
-      refreshStaking(false);
+      Promise.all([refresh(false), refreshStaking(false)]);
     }
   }, [activeAddress, settings.helius, isBitvavo, refresh, refreshStaking]);
 
-  const handleRefresh = useCallback(() => {
-    refresh(true);
-    if (!isBitvavo) refreshSkrOnly(true);
-  }, [refresh, refreshSkrOnly, isBitvavo]);
+  const handleRefresh = useCallback(async () => {
+    if (isBitvavo) {
+      await refresh(true);
+    } else {
+      await Promise.all([refresh(true), refreshStaking(true)]);
+    }
+  }, [refresh, refreshStaking, isBitvavo]);
 
   const handleValidate = useCallback(async () => {
     const result = await validateRewards();
@@ -587,6 +580,10 @@ export function OverviewPage() {
     () => tokenTotal + (solUsdValue ?? 0) + (stakedUsdValue ?? 0) + (seekerStakedUsdValue ?? 0),
     [tokenTotal, solUsdValue, stakedUsdValue, seekerStakedUsdValue],
   );
+
+  useEffect(() => {
+    if (activeAddress && usdTotal > 0) setWalletTotal(activeAddress, usdTotal);
+  }, [activeAddress, usdTotal, setWalletTotal]);
 
   const { maxEpoch, lastEpochRewards } = useMemo(() => {
     if (stakingRewards.length === 0) return { maxEpoch: null, lastEpochRewards: null };
@@ -680,7 +677,6 @@ export function OverviewPage() {
       {/* Summary cards */}
       {holdings && (
         <SummaryCards
-          solBalance={holdings.solBalance}
           usdTotal={usdTotal}
           tokenCount={holdings.tokens.length}
           totalStakedSol={totalStakedSol}

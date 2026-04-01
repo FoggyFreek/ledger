@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { createHmac } from 'crypto'
+import { writeLog } from '../lib/logger.js'
 
 const BITVAVO_KEY = process.env.BITVAVO_KEY
 const BITVAVO_SECRET = process.env.BITVAVO_SECRET
@@ -34,6 +35,7 @@ async function bitvavoRequest(method: HttpMethod, path: string, body?: unknown) 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), BITVAVO_TIMEOUT)
 
+  const start = Date.now()
   try {
     const response = await fetch(`${BITVAVO_BASE_URL}${path}`, {
       method,
@@ -46,6 +48,17 @@ async function bitvavoRequest(method: HttpMethod, path: string, body?: unknown) 
       body: method !== 'GET' ? payload : undefined,
       signal: controller.signal
     })
+
+    setImmediate(() => writeLog({
+      timestamp: new Date().toISOString(),
+      level: response.ok ? 'INFO' : response.status >= 500 ? 'ERROR' : 'WARN',
+      type: 'external',
+      target: 'bitvavo',
+      method,
+      path,
+      status_code: response.status,
+      duration_ms: Date.now() - start,
+    }))
 
     if (!response.ok) {
       const text = await response.text()
@@ -65,7 +78,13 @@ async function handleRequest(c: Context, path: string) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     const status = (err as { status?: number }).status ?? 500
-    console.error('Bitvavo Error:', message)
+    setImmediate(() => writeLog({
+      timestamp: new Date().toISOString(),
+      level: 'ERROR',
+      type: 'db',
+      path,
+      message,
+    }))
     return c.json({ error: message }, status as 400 | 401 | 403 | 404 | 500)
   }
 }

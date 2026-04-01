@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { writeLog } from '../lib/logger.js';
 
 const app = new Hono();
 
@@ -20,6 +21,22 @@ function enqueue(fn: () => Promise<Response>): Promise<Response> {
   return slot;
 }
 
+async function enqueueLogged(url: string, headers: Record<string, string>): Promise<Response> {
+  const start = Date.now();
+  const res = await enqueue(() => fetch(url, { headers }));
+  setImmediate(() => writeLog({
+    timestamp: new Date().toISOString(),
+    level: res.ok ? 'INFO' : res.status >= 500 ? 'ERROR' : 'WARN',
+    type: 'external',
+    target: 'coingecko',
+    method: 'GET',
+    path: new URL(url).pathname,
+    status_code: res.status,
+    duration_ms: Date.now() - start,
+  }));
+  return res;
+}
+
 // Proxy CoinGecko /coins/markets batch requests.
 // POST body: { ids: string; vsCurrency?: string }
 app.post('/coingecko/coins-markets', async (c) => {
@@ -31,7 +48,7 @@ app.post('/coingecko/coins-markets', async (c) => {
 
   let upstream: Response;
   try {
-    upstream = await enqueue(() => fetch(url, { headers }));
+    upstream = await enqueueLogged(url, headers);
   } catch {
     return c.json({ error: 'CoinGecko request failed' }, 500);
   }
@@ -58,7 +75,7 @@ app.post('/coingecko/market-chart-range', async (c) => {
 
   let upstream: Response;
   try {
-    upstream = await enqueue(() => fetch(url, { headers }));
+    upstream = await enqueueLogged(url, headers);
   } catch {
     return c.json({ error: 'CoinGecko request failed' }, 500);
   }
@@ -87,7 +104,7 @@ app.post('/coingecko/contract-market-chart-range', async (c) => {
 
   let upstream: Response;
   try {
-    upstream = await enqueue(() => fetch(url, { headers }));
+    upstream = await enqueueLogged(url, headers);
   } catch {
     return c.json({ error: 'CoinGecko request failed' }, 500);
   }

@@ -13,15 +13,23 @@ import { TxSelectionBar } from './TxSelectionBar';
 import { useTransactionFilters } from '../../hooks/useTransactionFilters';
 import { summarizeTx } from '../../lib/txSummary';
 import type { TransactionsViewProps } from './types';
+import type { WalletType } from '../../types/wallet';
+
+interface Props extends TransactionsViewProps {
+  walletType: WalletType;
+}
 
 const PAGE_SIZE = 50;
 
-export function SolanaTransactionsView(props: TransactionsViewProps) {
+export function TransactionsView(props: Props) {
   const {
-    transactions, allTxns, rewardTxnCount,
+    transactions, allTxns,
     tokenMetas, memberships, hook, activeAddress,
-    onReset, onGroupSaved,
+    walletType, onReset, onGroupSaved,
   } = props;
+
+  const isBitvavo = walletType === 'bitvavo';
+  const colCount = isBitvavo ? 5 : 6;
 
   const {
     loading, loadingAll, error, hasMore, isComplete,
@@ -32,11 +40,15 @@ export function SolanaTransactionsView(props: TransactionsViewProps) {
   const {
     filtered, paginated, page, setPage, totalPages,
     walletOnly, showFilters, setShowFilters, filterProps,
-  } = useTransactionFilters(allTxns, tokenMetas, false);
+  } = useTransactionFilters(allTxns, tokenMetas, isBitvavo);
 
   const [expandedSig, setExpandedSig] = useState<string | null>(null);
   const [selectedSigs, setSelectedSigs] = useState<Set<string>>(new Set());
   const [showAddToGroup, setShowAddToGroup] = useState(false);
+
+  const eligibleOnPage = isBitvavo
+    ? paginated
+    : paginated.filter(tx => tx.slot !== 0);
 
   return (
     <>
@@ -45,19 +57,16 @@ export function SolanaTransactionsView(props: TransactionsViewProps) {
         filteredCount={filtered.length}
         allCount={allTxns.length}
         isComplete={isComplete}
-        extraStatsText={rewardTxnCount > 0 ? ` + ${rewardTxnCount} staking rewards` : undefined}
         loading={loading}
         loadingAll={loadingAll}
         hasMore={hasMore}
         showFilters={showFilters}
         onToggleFilters={() => setShowFilters(s => !s)}
-        primaryLabel="Sync New"
-        onPrimary={fetchNew}
+        onSyncNew={fetchNew}
         onLoadAll={fetchAllHistory}
         onCancelLoadAll={cancelLoadAll}
         onReset={onReset}
         filterProps={filterProps}
-        showWalletOnlyFilter
       />
 
       {error && <ErrorBanner message={error} />}
@@ -66,7 +75,7 @@ export function SolanaTransactionsView(props: TransactionsViewProps) {
         <div className="text-center py-8">
           <p className="text-gray-500 mb-3">No transactions loaded yet</p>
           <button
-            onClick={fetchOlder}
+            onClick={isBitvavo ? fetchNew : fetchOlder}
             className="bg-purple-600 hover:bg-purple-700 text-white rounded-lg px-4 py-2 text-sm"
           >
             Load Transactions
@@ -90,14 +99,14 @@ export function SolanaTransactionsView(props: TransactionsViewProps) {
                     <input
                       type="checkbox"
                       className="w-4 h-4"
-                      disabled={paginated.every(tx => tx.slot === 0)}
-                      checked={paginated.filter(tx => tx.slot !== 0).length > 0 && paginated.filter(tx => tx.slot !== 0).every(tx => selectedSigs.has(tx.signature))}
+                      disabled={!isBitvavo && paginated.every(tx => tx.slot === 0)}
+                      checked={eligibleOnPage.length > 0 && eligibleOnPage.every(tx => selectedSigs.has(tx.signature))}
                       onChange={e => {
-                        const eligible = paginated.filter(tx => tx.slot !== 0).map(tx => tx.signature);
+                        const sigs = eligibleOnPage.map(tx => tx.signature);
                         setSelectedSigs(prev => {
                           const next = new Set(prev);
-                          if (e.target.checked) eligible.forEach(s => next.add(s));
-                          else eligible.forEach(s => next.delete(s));
+                          if (e.target.checked) sigs.forEach(s => next.add(s));
+                          else sigs.forEach(s => next.delete(s));
                           return next;
                         });
                       }}
@@ -106,7 +115,7 @@ export function SolanaTransactionsView(props: TransactionsViewProps) {
                   <th className="text-left px-4 py-2">Date</th>
                   <th className="text-left px-4 py-2">Category</th>
                   <th className="text-left px-4 py-2">Summary</th>
-                  <th className="text-right px-4 py-2">Fee (SOL)</th>
+                  {!isBitvavo && <th className="text-right px-4 py-2">Fee (SOL)</th>}
                   <th className="px-4 py-2"></th>
                 </tr>
               </thead>
@@ -121,7 +130,7 @@ export function SolanaTransactionsView(props: TransactionsViewProps) {
                         <input
                           type="checkbox"
                           className="w-4 h-4"
-                          disabled={tx.slot === 0}
+                          disabled={!isBitvavo && tx.slot === 0}
                           checked={selectedSigs.has(tx.signature)}
                           onChange={e => {
                             setSelectedSigs(prev => {
@@ -140,17 +149,19 @@ export function SolanaTransactionsView(props: TransactionsViewProps) {
                       <td className="px-4 py-3">
                         <CategoryBadge
                           category={tx.taxCategory}
-                          onChangeCategory={updateCategory ? (cat) => updateCategory(tx.signature, cat) : undefined}
+                          onChangeCategory={!isBitvavo && updateCategory ? (cat) => updateCategory(tx.signature, cat) : undefined}
                         />
                         {tx.err && <span className="ml-1 text-xs text-red-500">Failed</span>}
                       </td>
                       <td className="px-4 py-3 text-gray-300 max-w-xs truncate text-xs font-mono">
-                        {summarizeTx(tx, tokenMetas, activeAddress, walletOnly)}
+                        {isBitvavo ? tx.description : summarizeTx(tx, tokenMetas, activeAddress, walletOnly)}
                         <GroupBadges memberships={memberships[tx.signature] ?? []} />
                       </td>
-                      <td className="px-4 py-3 text-right text-gray-500 font-mono text-xs">
-                        {tx.slot > 0 ? (tx.fee / 1e9).toFixed(6) : '—'}
-                      </td>
+                      {!isBitvavo && (
+                        <td className="px-4 py-3 text-right text-gray-500 font-mono text-xs">
+                          {tx.slot > 0 ? (tx.fee / 1e9).toFixed(6) : '—'}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-right">
                         <ChevronDown
                           size={14}
@@ -160,7 +171,7 @@ export function SolanaTransactionsView(props: TransactionsViewProps) {
                     </tr>
                     {expandedSig === tx.signature && (
                       <tr>
-                        <td colSpan={6} className="p-0">
+                        <td colSpan={colCount} className="p-0">
                           <TxDetail tx={tx} tokenMetas={tokenMetas} walletAddress={activeAddress} walletOnly={walletOnly} />
                         </td>
                       </tr>
@@ -173,7 +184,7 @@ export function SolanaTransactionsView(props: TransactionsViewProps) {
 
           <PaginationBar page={page} totalPages={totalPages} pageSize={PAGE_SIZE} totalItems={filtered.length} setPage={setPage} />
 
-          {hasMore && (
+          {!isBitvavo && hasMore && (
             <div className="p-4 border-t border-gray-800 text-center">
               <button
                 onClick={fetchOlder}

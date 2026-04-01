@@ -21,12 +21,9 @@ export interface TransactionFiltersProps {
   setFilterDateFrom: (v: string) => void;
   filterDateTo: string;
   setFilterDateTo: (v: string) => void;
-  walletOnly: boolean;
-  setWalletOnly: (v: boolean) => void;
   hideDust: boolean;
   setHideDust: (v: boolean) => void;
   setPage: (v: number) => void;
-  showWalletOnlyFilter: boolean;
 }
 
 export function TransactionFilters(props: TransactionFiltersProps) {
@@ -34,8 +31,8 @@ export function TransactionFilters(props: TransactionFiltersProps) {
     filterCategory, setFilterCategory, filterToken, setFilterToken,
     filterDirection, setFilterDirection, filterAmountFrom, setFilterAmountFrom,
     filterAmountTo, setFilterAmountTo, filterDateFrom, setFilterDateFrom,
-    filterDateTo, setFilterDateTo, walletOnly, setWalletOnly,
-    hideDust, setHideDust, setPage, showWalletOnlyFilter,
+    filterDateTo, setFilterDateTo, 
+    hideDust, setHideDust, setPage, 
   } = props;
 
   return (
@@ -116,17 +113,6 @@ export function TransactionFilters(props: TransactionFiltersProps) {
         />
       </div>
       <div className="flex items-center gap-4">
-        {showWalletOnlyFilter && (
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={walletOnly}
-              onChange={e => setWalletOnly(e.target.checked)}
-              className="w-4 h-4"
-            />
-            <span className="text-xs text-gray-300">Wallet changes only</span>
-          </label>
-        )}
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -139,7 +125,7 @@ export function TransactionFilters(props: TransactionFiltersProps) {
       </div>
       <div className="flex items-end">
         <button
-          onClick={() => { setFilterCategory('ALL'); setFilterDateFrom(''); setFilterDateTo(''); setFilterToken(''); setFilterDirection('ALL'); setFilterAmountFrom(''); setFilterAmountTo(''); setWalletOnly(true); setHideDust(true); setPage(1); }}
+          onClick={() => { setFilterCategory('ALL'); setFilterDateFrom(''); setFilterDateTo(''); setFilterToken(''); setFilterDirection('ALL'); setFilterAmountFrom(''); setFilterAmountTo(''); setHideDust(true); setPage(1); }}
           className="text-xs text-gray-400 hover:text-white"
         >
           Clear

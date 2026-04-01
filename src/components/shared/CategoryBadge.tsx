@@ -38,7 +38,7 @@ export function CategoryBadge({ category, onChangeCategory }: Props) {
         {CATEGORY_LABEL[category]}
       </button>
       {open && (
-        <div className="absolute z-50 mt-1 left-0 bg-gray-800 border border-gray-700 rounded shadow-lg py-1 min-w-[140px] max-h-64 overflow-y-auto">
+        <div className="absolute z-50 mt-1 left-0 bg-gray-800 border border-gray-700 rounded shadow-lg py-1 min-w-[140px] max-h-64 overflow-y-auto scrollbar-dark">
           {ALL_CATEGORIES.map(cat => (
             <button
               key={cat}

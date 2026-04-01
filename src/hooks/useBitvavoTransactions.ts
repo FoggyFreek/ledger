@@ -7,6 +7,10 @@ import { BITVAVO_ADDRESS } from '../lib/walletType';
 
 const BITVAVO_LAUNCH_YEAR = 2018;
 
+function sortDesc(txns: ParsedTransaction[]): ParsedTransaction[] {
+  return txns.slice().sort((a, b) => b.blockTime - a.blockTime);
+}
+
 export function useBitvavoTransactions(address: string | null): TransactionHookResult {
   const [transactions, setTransactions] = useState<ParsedTransaction[]>([]);
   const [loading, setLoading] = useState(false);
@@ -21,7 +25,7 @@ export function useBitvavoTransactions(address: string | null): TransactionHookR
   useEffect(() => {
     if (!isBitvavo) return;
     loadTransactions(BITVAVO_ADDRESS).then(stored => {
-      setTransactions(stored.data);
+      setTransactions(sortDesc(stored.data));
       setIsComplete(stored.complete);
     });
   }, [isBitvavo]);

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { StakeAccount, StakingReward, SeekerStakeAccount } from '../types/wallet';
 
 export interface ValidationResult {
@@ -17,7 +17,7 @@ import {
   saveSeekerStakeAccounts,
 } from '../lib/storage';
 
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 export function useStaking(address: string | null) {
   const [stakeAccounts, setStakeAccounts] = useState<StakeAccount[]>([]);
@@ -27,30 +27,33 @@ export function useStaking(address: string | null) {
   const [loadingRewards, setLoadingRewards] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [seekerError, setSeekerError] = useState<string | null>(null);
+  const cacheRef = useRef<{ address: string; fetchedAt: number } | null>(null);
 
+  // Clear stale in-memory ref when address changes
   useEffect(() => {
-    if (!address) return;
-    loadStakeAccounts(address).then(c => c && setStakeAccounts(c.data));
-    loadStakingRewards(address).then(c => c && setStakingRewards(c.data));
-    loadSeekerStakeAccounts(address).then(c => c && setSeekerAccounts(c.data));
+    if (cacheRef.current?.address !== address) {
+      cacheRef.current = null;
+    }
   }, [address]);
 
   // Full refresh: native stake accounts + SKR + rewards (used for initial/forced reload)
-  const refresh = useCallback(async (_force = false) => {
+  const refresh = useCallback(async (force = false) => {
     if (!address) return;
-
-    // Check stored data first and use if recent enough to avoid unnecessary RPC calls
-    // const cached = await loadStakeAccounts(address);
-    // if (!force && cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-    //   setStakeAccounts(cached.data);
-    //   const cachedRewards = await loadStakingRewards(address);
-    //   if (cachedRewards) setStakingRewards(cachedRewards.data);
-    //   const cachedSeeker = await loadSeekerStakeAccounts(address);
-    //   if (cachedSeeker) setSeekerAccounts(cachedSeeker.data);
-    //   return;
-    // }
-
-    // No recent stored data, fetch fresh data
+    if (!force && cacheRef.current?.address === address && Date.now() - cacheRef.current.fetchedAt < CACHE_TTL_MS) {
+      return;
+    }
+    if (!force) {
+      const cached = await loadStakeAccounts(address);
+      if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+        setStakeAccounts(cached.data);
+        cacheRef.current = { address, fetchedAt: cached.fetchedAt };
+        const rewardsCache = await loadStakingRewards(address);
+        if (rewardsCache) setStakingRewards(rewardsCache.data);
+        const seekerCache = await loadSeekerStakeAccounts(address);
+        if (seekerCache) setSeekerAccounts(seekerCache.data);
+        return;
+      }
+    }
     setLoading(true);
     setError(null);
     setSeekerError(null);
@@ -98,29 +101,9 @@ export function useStaking(address: string | null) {
       } else {
         setStakingRewards([]);
       }
+      cacheRef.current = { address, fetchedAt: Date.now() };
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [address]);
-
-  // Refresh SKR staking only — used by the top Refresh button
-  const refreshSkrOnly = useCallback(async (force = false) => {
-    if (!address) return;
-    const cached = await loadSeekerStakeAccounts(address);
-    if (!force && cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-      setSeekerAccounts(cached.data);
-      return;
-    }
-    setLoading(true);
-    setSeekerError(null);
-    try {
-      const seekerAccts = await getSeekerStakeAccounts(address);
-      saveSeekerStakeAccounts(address, seekerAccts);
-      setSeekerAccounts(seekerAccts);
-    } catch (e) {
-      setSeekerError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -255,7 +238,7 @@ export function useStaking(address: string | null) {
   return {
     stakeAccounts, stakingRewards, epochsFetched, allEpochsFetched,
     seekerAccounts, loading, loadingRewards, error, seekerError,
-    refresh, refreshSkrOnly, updateRewards, validateRewards,
+    refresh, updateRewards, validateRewards,
   };
 }
 

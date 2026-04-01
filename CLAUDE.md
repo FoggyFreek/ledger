@@ -81,7 +81,7 @@ The dispatcher **`useWalletTransactions(address, walletType)`** (`src/hooks/useW
 - **`SolanaTransactionsView`** (`src/components/transactions/SolanaTransactionsView.tsx`) — 6-column table (includes Fee), "Sync New" button, "Load Older" pagination, category editing via `updateCategory`
 - **`BitvavoTransactionsView`** (`src/components/transactions/BitvavoTransactionsView.tsx`) — 5-column table (no Fee), "Refresh" button, no incremental pagination, read-only categories
 
-Shared sub-components: `TransactionFilters` (filter panel, parameterized via `showWalletOnlyFilter`), `PaginationBar`, `TxDetail` — all in `src/components/transactions/`.
+Shared sub-components: `TransactionFilters` (filter panel, parameterized via `PaginationBar`, `TxDetail` — all in `src/components/transactions/`.
 
 ### Transaction storage model
 
