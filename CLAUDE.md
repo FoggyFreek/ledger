@@ -45,7 +45,7 @@ npm test          # Run Vitest test suite
 
 1. **PostgreSQL** (via `src/lib/storage.ts`) — async fetch wrappers that call `GET`/`PUT`/`DELETE /api/v1/...`. No localStorage; no schema versioning needed.
 2. **React Context** (`src/context/AppContext.tsx`) — holds the active wallet address and wallet list. All hooks read/write through this.
-3. **Custom hooks** (`src/hooks/`) — `useHoldings`, `useTransactions`, `useSnapshots`, `useStaking`, `useBitvavoHoldings` each manage their own loading/error state and call into `storage.ts` for caching.
+3. **Custom hooks** (`src/hooks/`) — `useHoldings`, `useWalletTransactions`, `useSnapshots`, `useStaking`, `useBitvavoHoldings` each manage their own loading/error state and call into `storage.ts` for caching.
 
 ### Page routing
 
@@ -69,9 +69,23 @@ All Helius requests are proxied through the backend (`POST /api/v1/helius/rpc` f
 
 An in-memory `Map<mint, TokenMeta>` (`{ symbol, name, logoUri }`) populated from `getAssetsByOwner` results (free) and `prefetchTokenMeta` calls (lazy, on-demand). Use `getCachedTokenInfo(mint)` to look up metadata anywhere in the app without an extra fetch.
 
+### Transaction hooks and views
+
+Transaction fetching uses a unified `TransactionHookResult` interface (`src/types/transactionHook.ts`) implemented by two hooks:
+- **`useSolanaTransactions`** (`src/hooks/useSolanaTransactions.ts`) — Helius-backed, supports incremental pagination (`fetchNew`/`fetchOlder`), `updateCategory`
+- **`useBitvavoTransactions`** (`src/hooks/useBitvavoTransactions.ts`) — Bitvavo API-backed, year-by-year fetching, no category editing
+
+The dispatcher **`useWalletTransactions(address, walletType)`** (`src/hooks/useWalletTransactions.ts`) selects the correct hook based on wallet type. Both `TransactionsPage` and `SnapshotsPage` consume this single hook.
+
+`TransactionsPage` is an orchestrator (~140 lines) that manages shared state (filters, pagination, token metas, memberships) and delegates rendering to:
+- **`SolanaTransactionsView`** (`src/components/transactions/SolanaTransactionsView.tsx`) — 6-column table (includes Fee), "Sync New" button, "Load Older" pagination, category editing via `updateCategory`
+- **`BitvavoTransactionsView`** (`src/components/transactions/BitvavoTransactionsView.tsx`) — 5-column table (no Fee), "Refresh" button, no incremental pagination, read-only categories
+
+Shared sub-components: `TransactionFilters` (filter panel, parameterized via `showWalletOnlyFilter`), `PaginationBar`, `TxDetail` — all in `src/components/transactions/`.
+
 ### Transaction storage model
 
-Transactions are stored append-only. `useTransactions` has two fetch directions:
+Transactions are stored append-only. `useSolanaTransactions` has two fetch directions:
 - `fetchNew` — fetches with `until: newestSignature` to get recent txns
 - `fetchOlder` — fetches with `before: oldestSignature` to paginate backward
 
@@ -79,7 +93,7 @@ Transactions are stored append-only. `useTransactions` has two fetch directions:
 
 ### Transaction display (`src/lib/txSummary.ts`)
 
-Display helpers used by `TransactionsPage` and `GroupsPage`:
+Display helpers used by `SolanaTransactionsView` and `GroupsPage`:
 - `resolveSymbol(mint, tokenMetas)` — SOL for any SOL-like mint, else looks up token registry, falls back to truncated mint
 - `formatAmount(bc, tokenMetas)` — formats a single `BalanceChange` as `"+1,234.56 SOL"`
 - `summarizeChanges(changes, tokenMetas)` — joins multiple changes comma-separated

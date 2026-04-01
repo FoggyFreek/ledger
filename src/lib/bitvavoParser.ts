@@ -195,6 +195,31 @@ export async function fetchCurrentYearBitvavoTransactions(): Promise<ParsedTrans
   return txns;
 }
 
+export async function fetchBitvavoTransactionsSince(fromDateMs: number): Promise<ParsedTransaction[]> {
+  const toDateMs = Date.now();
+  const txns: ParsedTransaction[] = [];
+  const seenSigs = new Set<string>();
+
+  const first = await getAccountHistory({ fromDate: fromDateMs, toDate: toDateMs, page: 1, maxItems: 100 });
+  const pages = [first];
+  for (let page = 2; page <= first.totalPages; page++) {
+    pages.push(await getAccountHistory({ fromDate: fromDateMs, toDate: toDateMs, page, maxItems: 100 }));
+  }
+
+  for (const history of pages) {
+    for (const entry of history.items) {
+      const tx = parseBitvavoTrade(entry);
+      if (!seenSigs.has(tx.signature)) {
+        seenSigs.add(tx.signature);
+        txns.push(tx);
+      }
+    }
+  }
+
+  txns.sort((a, b) => b.blockTime - a.blockTime);
+  return txns;
+}
+
 export async function fetchAllBitvavoTransactions(): Promise<ParsedTransaction[]> {
   const txns: ParsedTransaction[] = [];
   const seenSigs = new Set<string>();

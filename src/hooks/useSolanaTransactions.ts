@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ParsedTransaction } from '../types/transaction';
+import type { TransactionHookResult } from '../types/transactionHook';
 import { getWalletHistory } from '../lib/helius';
 import { parseWalletHistoryTx } from '../lib/taxCategorizer';
 import type { TaxCategory } from '../types/transaction';
@@ -11,7 +12,7 @@ function sortDesc(txns: ParsedTransaction[]): ParsedTransaction[] {
   return txns.slice().sort((a, b) => b.blockTime - a.blockTime);
 }
 
-export function useTransactions(address: string | null) {
+export function useSolanaTransactions(address: string | null): TransactionHookResult {
   const [transactions, setTransactions] = useState<ParsedTransaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingAll, setLoadingAll] = useState(false);

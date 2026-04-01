@@ -1,10 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Camera, AlertTriangle } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { useHoldings } from '../hooks/useHoldings';
-import { useBitvavoHoldings } from '../hooks/useBitvavoHoldings';
-import { useTransactions } from '../hooks/useTransactions';
-import { useBitvavoTransactions } from '../hooks/useBitvavoTransactions';
+import { useWalletHoldings } from '../hooks/useWalletHoldings';
+import { useWalletTransactions } from '../hooks/useWalletTransactions';
 import { useSnapshots } from '../hooks/useSnapshots';
 import { useStaking } from '../hooks/useStaking';
 import { stakingRewardsToTransactions } from '../lib/taxCategorizer';
@@ -18,13 +16,9 @@ export function SnapshotsPage() {
   const wallet = wallets.find(w => w.address === activeAddress);
   const isBitvavo = wallet?.type === 'bitvavo';
 
-  const solanaHoldings = useHoldings(isBitvavo ? null : activeAddress);
-  const bitvavoHoldings = useBitvavoHoldings(isBitvavo ? activeAddress : null);
-  const { holdings } = isBitvavo ? bitvavoHoldings : solanaHoldings;
+  const { holdings } = useWalletHoldings(activeAddress, wallet?.type);
 
-  const solanaTransactions = useTransactions(isBitvavo ? null : activeAddress);
-  const bitvavoTxns = useBitvavoTransactions(isBitvavo ? activeAddress : null);
-  const { transactions, isComplete } = isBitvavo ? bitvavoTxns : solanaTransactions;
+  const { transactions, isComplete } = useWalletTransactions(activeAddress, wallet?.type);
 
   const { stakingRewards } = useStaking(isBitvavo ? null : activeAddress);
   const { snapshots, creating, error, create, remove, updateSnapshot } = useSnapshots(activeAddress);

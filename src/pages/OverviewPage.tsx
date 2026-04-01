@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { RefreshCw, ExternalLink, TrendingUp, Layers, RefreshCcw, ShieldCheck } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { useHoldings } from '../hooks/useHoldings';
-import { useBitvavoHoldings } from '../hooks/useBitvavoHoldings';
+import { useWalletHoldings } from '../hooks/useWalletHoldings';
 import { useStaking } from '../hooks/useStaking';
 import { useToast } from '../hooks/useToast';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
@@ -493,9 +492,7 @@ export function OverviewPage() {
   const wallet = wallets.find(w => w.address === activeAddress);
   const isBitvavo = wallet?.type === 'bitvavo';
 
-  const solanaHoldings = useHoldings(isBitvavo ? null : activeAddress);
-  const bitvavoHoldings = useBitvavoHoldings(isBitvavo ? activeAddress : null);
-  const { holdings, loading, error, refresh } = isBitvavo ? bitvavoHoldings : solanaHoldings;
+  const { holdings, loading, error, refresh } = useWalletHoldings(activeAddress, wallet?.type);
 
   const {
     stakeAccounts,

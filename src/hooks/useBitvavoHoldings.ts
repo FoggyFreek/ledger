@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { WalletHoldings } from '../types/wallet';
+import type { HoldingsHookResult } from '../types/holdingsHook';
 import { getAccountBalance } from '../lib/bitvavo';
 import { parseBitvavoBalances } from '../lib/bitvavoParser';
 import { fetchCurrentPricesForSymbols, fetchBitvavoLogoUris } from '../lib/prices';
@@ -8,7 +9,7 @@ import { BITVAVO_ADDRESS } from '../lib/walletType';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-export function useBitvavoHoldings(address: string | null) {
+export function useBitvavoHoldings(address: string | null): HoldingsHookResult {
   const [holdings, setHoldings] = useState<WalletHoldings | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
