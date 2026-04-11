@@ -155,13 +155,6 @@ export async function initDb() {
   `;
   await sql`CREATE INDEX IF NOT EXISTS tgm_wallet_sig ON transaction_group_members(wallet_address, signature)`;
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS colony_season_cache (
-      id         TEXT   PRIMARY KEY DEFAULT 'current',
-      data       JSONB  NOT NULL,
-      fetched_at BIGINT NOT NULL
-    )
-  `;
 }
 
 export default sql;

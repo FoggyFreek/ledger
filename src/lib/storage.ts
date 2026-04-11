@@ -244,14 +244,3 @@ export async function loadGroupMemberships(address: string): Promise<GroupMember
   return apiFetch<GroupMemberships>(`/api/v1/wallets/${address}/group-memberships`);
 }
 
-export async function loadColonyData(): Promise<import('../types/colony').ColonySeasonData | null> {
-  return apiFetch<import('../types/colony').ColonySeasonData>('/api/v1/colony-season');
-}
-
-export async function saveColonyData(data: import('../types/colony').ColonySeasonData): Promise<void> {
-  await apiPut('/api/v1/colony-season', data);
-}
-
-export async function clearColonyData(): Promise<void> {
-  await apiDelete('/api/v1/colony-season');
-}

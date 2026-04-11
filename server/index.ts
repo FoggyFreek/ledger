@@ -14,7 +14,6 @@ import groupsRoutes from './routes/groups.js';
 import heliusRoutes from './routes/helius.js';
 import bitvavoRoutes from './routes/bitvavo.js';
 import coingeckoRoutes from './routes/coingecko.js';
-import colonyRoutes from './routes/colony.js';
 import logsRoutes from './routes/logs.js';
 
 const app = new Hono();
@@ -57,7 +56,6 @@ app.route('/api/v1', groupsRoutes);
 app.route('/api/v1', heliusRoutes);
 app.route('/api/v1', bitvavoRoutes);
 app.route('/api/v1', coingeckoRoutes);
-app.route('/api/v1', colonyRoutes);
 app.route('/api/v1', logsRoutes);
 
 const port = parseInt(process.env.SERVER_PORT ?? '3001');

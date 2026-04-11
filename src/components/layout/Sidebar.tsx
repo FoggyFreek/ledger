@@ -64,7 +64,6 @@ export function Sidebar({ activePage, onPageChange }: Props) {
     { id: 'snapshots', label: 'Snapshots', icon: Camera },
     { id: 'groups', label: 'Groups', icon: FolderOpen },
     { id: 'timeline', label: 'Timeline', icon: GitBranch },
-    { id: 'colony', label: 'Colony Season', icon: Globe },
   ];
 
   return (
